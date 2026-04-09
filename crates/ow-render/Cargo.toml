@@ -1,0 +1,13 @@
+[package]
+name = "ow-render"
+description = "Isometric 2D renderer for Open Wages"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ow-core = { path = "../ow-core" }
+ow-data = { path = "../ow-data" }
+sdl2 = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "ow-app"
+description = "Main executable for Open Wages"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ow-core = { path = "../ow-core" }
+ow-data = { path = "../ow-data" }
+ow-render = { path = "../ow-render" }
+ow-audio = { path = "../ow-audio" }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }

@@ -1,0 +1,33 @@
+# Build
+/target
+
+# Rust backup files
+**/*.rs.bk
+
+# Editor swap/temp
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Game data (user-supplied, never committed)
+/data/
+*.iso
+*.bin
+*.cue
+
+# Survey/triage output
+file_survey.json
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Environment / secrets (should never exist, but just in case)
+.env
+.env.*
