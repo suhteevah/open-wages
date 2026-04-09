@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use tracing::{info, debug, trace, warn};
+use tracing::{info, debug, trace};
 
 /// A single parsed record from a .dat file.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

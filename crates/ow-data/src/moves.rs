@@ -1,0 +1,625 @@
+//! Parser for `MOVESnn.DAT` — AI movement orders / behavior scripts.
+//!
+//! These files define initial placement and behavioral scripts for all
+//! AI-controlled entities (enemies, NPCs, vehicles) on a given mission map.
+//! Each entity has A/B variants and a 6-level alert escalation system with
+//! up to 10 waypoint commands per level.
+
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use tracing::{debug, info, trace, warn};
+
+/// Errors that can occur while parsing MOVES files.
+#[derive(Debug, Error)]
+pub enum MovesError {
+    #[error("I/O error reading {path}: {source}")]
+    Io {
+        path: String,
+        source: std::io::Error,
+    },
+
+    #[error("line {line}: missing header field '{field}'")]
+    MissingHeader { line: usize, field: &'static str },
+
+    #[error("line {line}: failed to parse header value for '{field}': {detail}")]
+    InvalidHeader {
+        line: usize,
+        field: &'static str,
+        detail: String,
+    },
+
+    #[error("line {line}: expected entity header (e.g. 'Enemy 1A:'), got: {detail}")]
+    ExpectedEntityHeader { line: usize, detail: String },
+
+    #[error("line {line}: expected 'Level {level}:' line")]
+    ExpectedLevel { line: usize, level: u8 },
+
+    #[error("line {line}: invalid action code '{code}'")]
+    InvalidAction { line: usize, code: char },
+
+    #[error("line {line}: failed to parse integer in level data: {detail}")]
+    InvalidLevelData { line: usize, detail: String },
+
+    #[error("line {line}: unexpected end of file")]
+    UnexpectedEof { line: usize },
+
+    #[error("line {line}: missing field '{field}' in entity header")]
+    MissingEntityField {
+        line: usize,
+        field: &'static str,
+    },
+}
+
+/// A single waypoint command in an alert level.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MoveCommand {
+    /// Action code: M(ove), I(nvestigate), C(over), E(scape), S(tand), V(ehicle), W(ait), N(one).
+    pub action: char,
+    /// Target tile ID (0 = no destination / context-dependent).
+    pub tile_id: u32,
+    /// Grid quadrant at the target tile (0 = no destination).
+    pub grid: u8,
+}
+
+/// One alert level's activation threshold and command sequence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AlertLevel {
+    /// Activation threshold (0-100). 0 = disabled, 100 = always triggers.
+    pub threshold: u32,
+    /// Up to 10 waypoint commands (N/0/0 slots are included as-is).
+    pub commands: Vec<MoveCommand>,
+}
+
+/// An A or B variant behavior block for a single entity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EntityBehavior {
+    /// Entity label, e.g. "Enemy 1A", "NPC 2B".
+    pub label: String,
+    /// Variant: 'A' or 'B'.
+    pub variant: char,
+    /// NPC type identifier (0 = standard infantry, 2 = vehicle crew / special).
+    pub npc_type: u8,
+    /// Vehicle attachment (0 = independent, N = attached to vehicle N).
+    pub attached_to: u8,
+    /// Initial spawn tile ID.
+    pub setup_tile: u32,
+    /// Initial spawn grid quadrant.
+    pub setup_grid: u8,
+    /// The 6 alert levels.
+    pub alert_levels: Vec<AlertLevel>,
+}
+
+/// A vehicle spawn entry at the end of the file.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VehicleSpawn {
+    /// Vehicle number (1-based).
+    pub index: u32,
+    /// Spawn tile ID.
+    pub tile_id: u32,
+    /// Spawn grid quadrant.
+    pub grid: u8,
+}
+
+/// The complete parsed MOVES file for a mission.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoveScript {
+    /// Number of enemy unit slots.
+    pub enemy_count: u32,
+    /// Number of NPC unit slots.
+    pub npc_count: u32,
+    /// Number of vehicles.
+    pub vehicle_count: u32,
+    /// All entity behavior blocks (enemies A/B, then NPCs A/B).
+    pub behaviors: Vec<EntityBehavior>,
+    /// Vehicle spawn positions.
+    pub vehicles: Vec<VehicleSpawn>,
+}
+
+/// Valid action codes for move commands.
+const VALID_ACTIONS: &[char] = &['M', 'I', 'C', 'E', 'S', 'V', 'W', 'N'];
+
+/// Parse a `MOVESnn.DAT` file into a [`MoveScript`].
+pub fn parse_moves(path: &Path) -> Result<MoveScript, MovesError> {
+    info!("parsing MOVES script from {}", path.display());
+
+    let contents = std::fs::read_to_string(path).map_err(|e| MovesError::Io {
+        path: path.display().to_string(),
+        source: e,
+    })?;
+
+    let lines: Vec<&str> = contents.lines().collect();
+    let mut cursor = 0;
+
+    // Helper to get a trimmed line or return EOF error.
+    let get_line = |idx: usize| -> Result<&str, MovesError> {
+        lines
+            .get(idx)
+            .map(|l| l.trim_end_matches('\r'))
+            .ok_or(MovesError::UnexpectedEof { line: idx + 1 })
+    };
+
+    // --- Parse header ---
+    let enemy_count = parse_header_line(get_line(cursor)?, cursor + 1, "Enemies")?;
+    cursor += 1;
+    let npc_count = parse_header_line(get_line(cursor)?, cursor + 1, "NPCs")?;
+    cursor += 1;
+    let vehicle_count = parse_header_line(get_line(cursor)?, cursor + 1, "Vehicles")?;
+    cursor += 1;
+
+    info!("header: {enemy_count} enemies, {npc_count} NPCs, {vehicle_count} vehicles");
+
+    // Skip blank lines after header.
+    while cursor < lines.len() {
+        let line = get_line(cursor)?.trim();
+        if !line.is_empty() {
+            break;
+        }
+        cursor += 1;
+    }
+
+    // --- Parse entity blocks ---
+    let total_entities = (enemy_count + npc_count) * 2; // A + B variants
+    let mut behaviors = Vec::with_capacity(total_entities as usize);
+
+    for _ in 0..total_entities {
+        // Skip blank lines between entities.
+        while cursor < lines.len() {
+            let line = get_line(cursor)?.trim();
+            if !line.is_empty() {
+                break;
+            }
+            cursor += 1;
+        }
+        if cursor >= lines.len() {
+            break;
+        }
+
+        let (behavior, new_cursor) = parse_entity_block(&lines, cursor)?;
+        debug!(
+            "parsed entity '{}': npc_type={} attached_to={} setup=({},{})",
+            behavior.label, behavior.npc_type, behavior.attached_to,
+            behavior.setup_tile, behavior.setup_grid
+        );
+        behaviors.push(behavior);
+        cursor = new_cursor;
+    }
+
+    // --- Parse vehicle entries ---
+    let mut vehicles = Vec::with_capacity(vehicle_count as usize);
+    while cursor < lines.len() {
+        let line = get_line(cursor)?.trim();
+        cursor += 1;
+
+        if line.is_empty() {
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("Vehicle ") {
+            // "Vehicle 1: 2971 3"
+            let parts: Vec<&str> = rest.splitn(2, ':').collect();
+            if parts.len() == 2 {
+                let idx: u32 = parts[0].trim().parse().unwrap_or(0);
+                let vals: Vec<&str> = parts[1].split_whitespace().collect();
+                if vals.len() >= 2 {
+                    let tile_id: u32 = vals[0].parse().unwrap_or(0);
+                    let grid: u8 = vals[1].parse().unwrap_or(0);
+                    debug!("vehicle {idx}: tile={tile_id} grid={grid}");
+                    vehicles.push(VehicleSpawn {
+                        index: idx,
+                        tile_id,
+                        grid,
+                    });
+                }
+            }
+        }
+    }
+
+    info!(
+        "successfully parsed {} behaviors and {} vehicles from {}",
+        behaviors.len(),
+        vehicles.len(),
+        path.display()
+    );
+
+    Ok(MoveScript {
+        enemy_count,
+        npc_count,
+        vehicle_count,
+        behaviors,
+        vehicles,
+    })
+}
+
+/// Parse a header line like "Enemies: 10" or "NPCs:\t1".
+fn parse_header_line(line: &str, line_num: usize, field: &'static str) -> Result<u32, MovesError> {
+    let line = line.trim();
+    // Match field name case-insensitively at the start.
+    let lower = line.to_lowercase();
+    let prefix = format!("{}:", field.to_lowercase());
+    if !lower.starts_with(&prefix) {
+        return Err(MovesError::MissingHeader { line: line_num, field });
+    }
+    let val_str = line[prefix.len()..].trim();
+    val_str.parse().map_err(|_| MovesError::InvalidHeader {
+        line: line_num,
+        field,
+        detail: format!("'{val_str}' is not a valid integer"),
+    })
+}
+
+/// Parse a single entity block (header + 6 levels), returning the behavior and the new cursor.
+fn parse_entity_block(
+    lines: &[&str],
+    start: usize,
+) -> Result<(EntityBehavior, usize), MovesError> {
+    let mut cursor = start;
+
+    let get = |idx: usize| -> Result<&str, MovesError> {
+        lines
+            .get(idx)
+            .map(|l| l.trim_end_matches('\r'))
+            .ok_or(MovesError::UnexpectedEof { line: idx + 1 })
+    };
+
+    // Entity header line, e.g. "Enemy 1A:" or "NPC 1B:"
+    let header_line = get(cursor)?.trim();
+    let label = header_line.trim_end_matches(':').trim().to_string();
+    let variant = label.chars().last().unwrap_or('A');
+    trace!("line {}: entity header '{}'", cursor + 1, label);
+    cursor += 1;
+
+    // "NPC Type: <n>"
+    let npc_type_line = get(cursor)?.trim();
+    let npc_type = extract_trailing_int(npc_type_line, cursor + 1, "NPC Type")? as u8;
+    cursor += 1;
+
+    // "Attached To: <n>"
+    let attached_line = get(cursor)?.trim();
+    let attached_to = extract_trailing_int(attached_line, cursor + 1, "Attached To")? as u8;
+    cursor += 1;
+
+    // "Setup: <TileID> <Grid>"
+    let setup_line = get(cursor)?.trim();
+    let setup_rest = setup_line
+        .split(':')
+        .nth(1)
+        .ok_or(MovesError::MissingEntityField {
+            line: cursor + 1,
+            field: "Setup",
+        })?
+        .trim();
+    let setup_parts: Vec<&str> = setup_rest.split_whitespace().collect();
+    let setup_tile: u32 = setup_parts
+        .first()
+        .unwrap_or(&"0")
+        .parse()
+        .unwrap_or(0);
+    let setup_grid: u8 = setup_parts
+        .get(1)
+        .unwrap_or(&"0")
+        .parse()
+        .unwrap_or(0);
+    trace!(
+        "line {}: setup tile={} grid={}",
+        cursor + 1,
+        setup_tile,
+        setup_grid
+    );
+    cursor += 1;
+
+    // Parse 6 alert levels.
+    let mut alert_levels = Vec::with_capacity(6);
+    for level_num in 1..=6u8 {
+        let level_line = get(cursor)?.trim_end_matches('\r');
+        let alert_level = parse_level_line(level_line, cursor + 1, level_num)?;
+        trace!(
+            "line {}: level {} threshold={} commands={}",
+            cursor + 1,
+            level_num,
+            alert_level.threshold,
+            alert_level.commands.len()
+        );
+        alert_levels.push(alert_level);
+        cursor += 1;
+    }
+
+    Ok((
+        EntityBehavior {
+            label,
+            variant,
+            npc_type,
+            attached_to,
+            setup_tile,
+            setup_grid,
+            alert_levels,
+        },
+        cursor,
+    ))
+}
+
+/// Extract a trailing integer from a "Key: value" line.
+fn extract_trailing_int(line: &str, line_num: usize, field: &'static str) -> Result<u32, MovesError> {
+    let val_str = line
+        .split(':')
+        .nth(1)
+        .ok_or(MovesError::MissingEntityField { line: line_num, field })?
+        .trim();
+    val_str.parse().map_err(|_| MovesError::InvalidLevelData {
+        line: line_num,
+        detail: format!("'{val_str}' is not a valid integer for {field}"),
+    })
+}
+
+/// Parse a level line like "Level 1: 75\tM 2417 3 M 3545 3 ... N 0 0".
+fn parse_level_line(
+    line: &str,
+    line_num: usize,
+    expected_level: u8,
+) -> Result<AlertLevel, MovesError> {
+    // Split off "Level N:" prefix.
+    let after_colon = line
+        .split(':')
+        .skip(1)
+        .collect::<Vec<&str>>()
+        .join(":");
+    let after_colon = after_colon.trim();
+
+    // The first token is the threshold.
+    let tokens: Vec<&str> = after_colon.split_whitespace().collect();
+    if tokens.is_empty() {
+        return Err(MovesError::ExpectedLevel {
+            line: line_num,
+            level: expected_level,
+        });
+    }
+
+    let threshold: u32 = tokens[0].parse().map_err(|_| MovesError::InvalidLevelData {
+        line: line_num,
+        detail: format!("'{}' is not a valid threshold", tokens[0]),
+    })?;
+
+    // Remaining tokens are triplets: Action TileID Grid.
+    let mut commands = Vec::new();
+    let mut i = 1;
+    while i + 2 <= tokens.len() {
+        let action_str = tokens[i];
+        if action_str.len() != 1 {
+            // Not a valid action token; stop parsing commands.
+            warn!(
+                "line {line_num}: unexpected token '{}' at position {i}, stopping command parse",
+                action_str
+            );
+            break;
+        }
+        let action = action_str.chars().next().unwrap();
+
+        if !VALID_ACTIONS.contains(&action) {
+            return Err(MovesError::InvalidAction {
+                line: line_num,
+                code: action,
+            });
+        }
+
+        let tile_id: u32 = tokens[i + 1].parse().map_err(|_| MovesError::InvalidLevelData {
+            line: line_num,
+            detail: format!("'{}' is not a valid tile ID", tokens[i + 1]),
+        })?;
+
+        let grid: u8 = tokens[i + 2].parse().map_err(|_| MovesError::InvalidLevelData {
+            line: line_num,
+            detail: format!("'{}' is not a valid grid value", tokens[i + 2]),
+        })?;
+
+        commands.push(MoveCommand {
+            action,
+            tile_id,
+            grid,
+        });
+        i += 3;
+    }
+
+    Ok(AlertLevel { threshold, commands })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_temp_file(contents: &str) -> tempfile::NamedTempFile {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(contents.as_bytes()).unwrap();
+        f.flush().unwrap();
+        f
+    }
+
+    #[test]
+    fn parse_minimal_moves() {
+        let data = "\
+Enemies: 1\r\n\
+NPCs:\t0\r\n\
+Vehicles: 0\r\n\
+\r\n\
+Enemy 1A:\r\n\
+NPC Type: 0\r\n\
+Attached To: 0\r\n\
+Setup: 5000 2\r\n\
+Level 1: 75\tM 100 1 M 200 2 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 2: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 3: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 4: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 5: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 6: 60\tE 9000 4 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+\r\n\
+Enemy 1B:\r\n\
+NPC Type: 0\r\n\
+Attached To: 0\r\n\
+Setup: 6000 3\r\n\
+Level 1: 43\tM 300 1 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 2: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 3: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 4: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 5: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 6: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+";
+        let f = write_temp_file(data);
+        let script = parse_moves(f.path()).unwrap();
+
+        assert_eq!(script.enemy_count, 1);
+        assert_eq!(script.npc_count, 0);
+        assert_eq!(script.vehicle_count, 0);
+        assert_eq!(script.behaviors.len(), 2);
+
+        let a = &script.behaviors[0];
+        assert_eq!(a.label, "Enemy 1A");
+        assert_eq!(a.variant, 'A');
+        assert_eq!(a.npc_type, 0);
+        assert_eq!(a.setup_tile, 5000);
+        assert_eq!(a.setup_grid, 2);
+
+        // Level 1 should have 10 commands (2 M + 8 N).
+        assert_eq!(a.alert_levels[0].threshold, 75);
+        assert_eq!(a.alert_levels[0].commands.len(), 10);
+        assert_eq!(a.alert_levels[0].commands[0].action, 'M');
+        assert_eq!(a.alert_levels[0].commands[0].tile_id, 100);
+        assert_eq!(a.alert_levels[0].commands[1].action, 'M');
+        assert_eq!(a.alert_levels[0].commands[1].tile_id, 200);
+        assert_eq!(a.alert_levels[0].commands[2].action, 'N');
+
+        // Level 6 should have escape.
+        assert_eq!(a.alert_levels[5].threshold, 60);
+        assert_eq!(a.alert_levels[5].commands[0].action, 'E');
+        assert_eq!(a.alert_levels[5].commands[0].tile_id, 9000);
+    }
+
+    #[test]
+    fn parse_with_vehicles() {
+        let data = "\
+Enemies: 1\r\n\
+NPCs:\t0\r\n\
+Vehicles: 2\r\n\
+\r\n\
+Enemy 1A:\r\n\
+NPC Type: 2\r\n\
+Attached To: 1\r\n\
+Setup: 1000 1\r\n\
+Level 1: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 2: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 3: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 4: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 5: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 6: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+\r\n\
+Enemy 1B:\r\n\
+NPC Type: 2\r\n\
+Attached To: 1\r\n\
+Setup: 2000 3\r\n\
+Level 1: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 2: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 3: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 4: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 5: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 6: 100\tV 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+\r\n\
+Vehicle 1: 2971 3\r\n\
+Vehicle 2: 5987 4\r\n\
+";
+        let f = write_temp_file(data);
+        let script = parse_moves(f.path()).unwrap();
+
+        assert_eq!(script.vehicle_count, 2);
+        assert_eq!(script.vehicles.len(), 2);
+        assert_eq!(script.vehicles[0].index, 1);
+        assert_eq!(script.vehicles[0].tile_id, 2971);
+        assert_eq!(script.vehicles[0].grid, 3);
+        assert_eq!(script.vehicles[1].index, 2);
+        assert_eq!(script.vehicles[1].tile_id, 5987);
+
+        assert_eq!(script.behaviors[0].npc_type, 2);
+        assert_eq!(script.behaviors[0].attached_to, 1);
+
+        // Level 6 V action.
+        assert_eq!(script.behaviors[1].alert_levels[5].commands[0].action, 'V');
+    }
+
+    #[test]
+    fn all_action_codes_accepted() {
+        // Build a level line with every valid action code.
+        let data = "\
+Enemies: 1\r\n\
+NPCs:\t0\r\n\
+Vehicles: 0\r\n\
+\r\n\
+Enemy 1A:\r\n\
+NPC Type: 0\r\n\
+Attached To: 0\r\n\
+Setup: 100 1\r\n\
+Level 1: 50\tM 1 1 I 2 2 C 0 0 E 3 3 S 0 0 V 0 0 W 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 2: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 3: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 4: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 5: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 6: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+\r\n\
+Enemy 1B:\r\n\
+NPC Type: 0\r\n\
+Attached To: 0\r\n\
+Setup: 100 1\r\n\
+Level 1: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 2: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 3: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 4: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 5: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 6: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+";
+        let f = write_temp_file(data);
+        let script = parse_moves(f.path()).unwrap();
+
+        let cmds = &script.behaviors[0].alert_levels[0].commands;
+        assert_eq!(cmds.len(), 10);
+        assert_eq!(cmds[0].action, 'M');
+        assert_eq!(cmds[1].action, 'I');
+        assert_eq!(cmds[2].action, 'C');
+        assert_eq!(cmds[3].action, 'E');
+        assert_eq!(cmds[4].action, 'S');
+        assert_eq!(cmds[5].action, 'V');
+        assert_eq!(cmds[6].action, 'W');
+        assert_eq!(cmds[7].action, 'N');
+    }
+
+    #[test]
+    fn invalid_action_rejected() {
+        let data = "\
+Enemies: 1\r\n\
+NPCs:\t0\r\n\
+Vehicles: 0\r\n\
+\r\n\
+Enemy 1A:\r\n\
+NPC Type: 0\r\n\
+Attached To: 0\r\n\
+Setup: 100 1\r\n\
+Level 1: 50\tX 1 1 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 2: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 3: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 4: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 5: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 6: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+\r\n\
+Enemy 1B:\r\n\
+NPC Type: 0\r\n\
+Attached To: 0\r\n\
+Setup: 100 1\r\n\
+Level 1: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 2: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 3: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 4: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 5: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+Level 6: 0\tN 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0 N 0 0\r\n\
+";
+        let f = write_temp_file(data);
+        let err = parse_moves(f.path()).unwrap_err();
+        assert!(matches!(err, MovesError::InvalidAction { code: 'X', .. }));
+    }
+}
