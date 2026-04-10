@@ -360,6 +360,12 @@ pub fn run_game_loop(
         // -- Update --
         update_phase(&mut game, delta_ms);
 
+        // -- Update window dimensions every frame (handles fullscreen, DPI changes,
+        // and resize events we might miss). Cheap call, prevents coordinate bugs. --
+        let (cw, ch) = canvas.window().size();
+        game.window_width = cw;
+        game.window_height = ch;
+
         // -- Render --
         let bg = phase_background_color(&game.phase_handler);
         canvas.set_draw_color(bg);
@@ -397,17 +403,37 @@ pub fn run_game_loop(
 /// Handle the ESC key. Returns `false` if the game should quit.
 fn handle_escape(game: &mut GameLoop) -> bool {
     match &game.phase_handler {
-        PhaseHandler::Paused { .. } => {
-            // Second ESC from pause -> quit
-            info!("Quitting from pause menu");
-            false
+        // If we're in an office sub-screen (not Overview), ESC goes back to
+        // the office desk. This is how the original game works — ESC closes
+        // the current overlay and returns to the main office scene.
+        PhaseHandler::Office { sub_phase } if *sub_phase != OfficePhase::Overview => {
+            info!(from = ?sub_phase, "Returning to office overview");
+            game.game_state.set_phase(GamePhase::Office(OfficePhase::Overview));
+            game.phase_handler = PhaseHandler::Office {
+                sub_phase: OfficePhase::Overview,
+            };
+            true
         }
+
+        // From pause, ESC resumes (not quit — that was too aggressive).
+        // Use the window X button or Alt+F4 to actually quit.
+        PhaseHandler::Paused { previous } => {
+            info!("Resuming from pause");
+            let prev = std::mem::replace(
+                &mut game.phase_handler,
+                PhaseHandler::Office { sub_phase: OfficePhase::Overview },
+            );
+            if let PhaseHandler::Paused { previous } = prev {
+                game.phase_handler = *previous;
+            }
+            true
+        }
+
+        // From the office overview or any other screen, ESC pauses.
         _ => {
-            // First ESC -> enter pause
             info!("Entering pause");
             let current = std::mem::replace(
                 &mut game.phase_handler,
-                // Temporary — immediately overwritten
                 PhaseHandler::Office {
                     sub_phase: OfficePhase::Overview,
                 },
@@ -520,8 +546,11 @@ fn handle_pause_input(game: &mut GameLoop, event: &Event) {
 fn handle_office_input(game: &mut GameLoop, event: &Event) {
     // Helper: check if a point is inside a rect defined in 640x480 space.
     // We scale the mouse coordinates from window size to 640x480.
+    // Scale mouse coords to the 640x480 game coordinate space.
+    // On high-DPI displays, SDL2 mouse events use LOGICAL pixels
+    // (window size), not physical pixels (canvas output size).
+    // We use game.window_width/height (logical) for mouse mapping.
     let check_hit = |mx: i32, my: i32, x1: i32, y1: i32, x2: i32, y2: i32, ww: u32, wh: u32| -> bool {
-        // Scale mouse coords to original 640x480 resolution.
         let sx = (mx as f32 * 640.0 / ww as f32) as i32;
         let sy = (my as f32 * 480.0 / wh as f32) as i32;
         sx >= x1 && sx <= x2 && sy >= y1 && sy <= y2
@@ -535,24 +564,46 @@ fn handle_office_input(game: &mut GameLoop, event: &Event) {
         } => {
             let (ww, wh) = (game.window_width, game.window_height);
 
-            // Check each clickable hotspot (from MAIN.BTN, 640x480 coords).
-            // The action depends on which object the player clicked on.
-            let action = if check_hit(*x, *y, 400, 340, 480, 410, ww, wh) {
-                // Phone area → Hire Mercenaries
+            // Check each clickable hotspot (640x480 coords from the original game).
+            // Hotspots are checked in priority order — more specific areas first
+            // to prevent overlap issues (e.g., phone vs world map).
+            //
+            // The office layout (from OFFPIC2.PCX):
+            //   Top-left: window with desert view
+            //   Left: filing cabinet (green, tall)
+            //   Center: green desk pad with calculator, coffee mug
+            //   Right: white telephone, desk lamp
+            //   Far right wall: world map, fax machine on side table
+            //   Background: door with "MERCS INC" glass, ceiling fan
+            //   Bottom-left: magazines/catalogs on desk
+            // Generous hotspots covering the full visual objects on OFFPIC2.
+            // The original MAIN.BTN has tiny 22px icon buttons designed for
+            // sprite overlays we don't render yet. These bigger rects match
+            // what the player visually sees and can click comfortably.
+            let sx = (*x as f32 * 640.0 / ww as f32) as i32;
+            let sy = (*y as f32 * 480.0 / wh as f32) as i32;
+            info!(window_x = x, window_y = y, game_x = sx, game_y = sy, "Office click");
+
+            // Coordinates measured from 640x480 grid overlay on OFFPIC2.PCX.
+            let action = if check_hit(*x, *y, 400, 340, 520, 430, ww, wh) {
+                // Phone (right side of desk) → Hire Mercenaries
                 Some(("Hire Mercenaries", OfficePhase::HireMercs))
-            } else if check_hit(*x, *y, 11, 331, 130, 468, ww, wh) {
-                // Filing cabinet (left side) → View Files / Equipment
-                Some(("Equipment Catalog", OfficePhase::Equipment))
-            } else if check_hit(*x, *y, 122, 384, 230, 420, ww, wh) {
-                // Fax machine → Contracts
+            } else if check_hit(*x, *y, 480, 230, 560, 310, ww, wh) {
+                // Fax machine (on side table, far right) → Contracts
                 Some(("Contracts (Fax)", OfficePhase::Contracts))
-            } else if check_hit(*x, *y, 485, 331, 628, 438, ww, wh) {
-                // World map on wall → Intel / World Map
+            } else if check_hit(*x, *y, 230, 330, 310, 380, ww, wh) {
+                // Calculator (on green desk pad) → Training
+                Some(("Training (Calculator)", OfficePhase::Training))
+            } else if check_hit(*x, *y, 490, 50, 620, 190, ww, wh) {
+                // World map (on wall, upper right) → Intel
                 Some(("Mission Intel", OfficePhase::Intel))
-            } else if check_hit(*x, *y, 122, 440, 230, 470, ww, wh) {
-                // Lower filing cabinet / training area
-                Some(("Training", OfficePhase::Training))
-            } else if check_hit(*x, *y, 429, 424, 475, 446, ww, wh) {
+            } else if check_hit(*x, *y, 70, 170, 130, 370, ww, wh) {
+                // Filing cabinet (left wall) → Equipment
+                Some(("Equipment (Cabinet)", OfficePhase::Equipment))
+            } else if check_hit(*x, *y, 100, 360, 220, 430, ww, wh) {
+                // Magazines on desk (lower left) → Equipment
+                Some(("Equipment (Magazines)", OfficePhase::Equipment))
+            } else if check_hit(*x, *y, 240, 40, 370, 250, ww, wh) {
                 // Door → Begin Mission
                 if game.game_state.team.is_empty() {
                     warn!("Cannot begin mission: no mercs hired");
@@ -1187,6 +1238,40 @@ fn render_office(
             text.draw_small(canvas, tc,
                 "1:Hire  2:Equip  3:Intel  4:Contracts  5:Train  |  B:Begin Mission  |  ESC:Quit",
                 15, (h - 22) as i32, Color::RGB(160, 160, 180)).ok();
+
+            // DEBUG: Draw labeled hotspot overlays so we can see where the
+            // click regions are and fix them. Remove this once hotspots are correct.
+            //
+            // IMPORTANT: Use game.window_width/height (logical pixels from SDL2
+            // mouse events), NOT canvas.output_size() (physical pixels). On high-DPI
+            // displays these differ by the scale factor, causing misalignment.
+            // Print dimensions to stdout for DPI debugging.
+            // DEBUG: Hotspot overlays using window logical size (same as click handler).
+            let ww = game.window_width as f32;
+            let wh = game.window_height as f32;
+            canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
+            let hotspots: &[((i32,i32,i32,i32), &str, Color)] = &[
+                ((400,340,520,430), "HIRE (Phone)", Color::RGBA(255,50,50,100)),
+                ((480,230,560,310), "CONTRACTS (Fax)", Color::RGBA(50,50,255,100)),
+                ((490,50,620,190), "INTEL (Map)", Color::RGBA(255,255,50,100)),
+                ((70,170,130,370), "EQUIP (Cabinet)", Color::RGBA(50,255,50,100)),
+                ((100,360,220,430), "EQUIP (Mags)", Color::RGBA(50,255,50,100)),
+                ((230,330,310,380), "TRAIN (Calc)", Color::RGBA(255,50,255,100)),
+                ((240,40,370,250), "MISSION (Door)", Color::RGBA(255,150,0,100)),
+            ];
+            for &((x1,y1,x2,y2), label, color) in hotspots {
+                // Scale 640x480 → window size. Uses same math as check_hit (inverse).
+                let sx1 = (x1 as f32 * ww / 640.0) as i32;
+                let sy1 = (y1 as f32 * wh / 480.0) as i32;
+                let sx2 = (x2 as f32 * ww / 640.0) as i32;
+                let sy2 = (y2 as f32 * wh / 480.0) as i32;
+                canvas.set_draw_color(color);
+                canvas.fill_rect(Rect::new(sx1, sy1, (sx2-sx1) as u32, (sy2-sy1) as u32)).ok();
+                canvas.set_draw_color(Color::RGB(255,255,255));
+                canvas.draw_rect(Rect::new(sx1, sy1, (sx2-sx1) as u32, (sy2-sy1) as u32)).ok();
+                text.draw_small(canvas, tc, label, sx1+4, sy1+4, Color::RGB(255,255,255)).ok();
+            }
+            canvas.set_blend_mode(sdl2::render::BlendMode::None);
 
             return; // Overview renders the background only — no tab bar.
         }
