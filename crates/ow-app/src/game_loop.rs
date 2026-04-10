@@ -348,7 +348,7 @@ pub fn run_game_loop(
 
                 // Delegate all other input to the current phase handler
                 _ => {
-                    handle_phase_input(&mut game, &event);
+                    handle_phase_input(&mut game, &event, &ruleset);
                 }
             }
         }
@@ -456,7 +456,7 @@ fn handle_escape(game: &mut GameLoop) -> bool {
 /// `game.phase_handler` by copy/clone *before* passing `game` to sub-handlers.
 /// Phase transitions replace `game.phase_handler` wholesale rather than
 /// mutating through a partial borrow.
-fn handle_phase_input(game: &mut GameLoop, event: &Event) {
+fn handle_phase_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
     // Take a snapshot of the current phase discriminant to route input.
     // We avoid borrowing game.phase_handler across the handler calls.
     enum Route {
@@ -481,7 +481,7 @@ fn handle_phase_input(game: &mut GameLoop, event: &Event) {
 
     match route {
         Route::Paused => handle_pause_input(game, event),
-        Route::Office => handle_office_input(game, event),
+        Route::Office => handle_office_input(game, event, ruleset),
         Route::Travel => { /* No player input during travel */ }
         Route::Deployment => handle_deployment_input(game, event),
         Route::Combat => handle_combat_input(game, event),
@@ -543,7 +543,13 @@ fn handle_pause_input(game: &mut GameLoop, event: &Event) {
 /// - World map (wall, right)     → World Map / Intel
 /// - Door (far right)            → Begin Mission
 /// - Magazines (desk, left)      → Equipment catalog
-fn handle_office_input(game: &mut GameLoop, event: &Event) {
+fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
+    // Get current sub-phase.
+    let current_sub = if let PhaseHandler::Office { sub_phase } = &game.phase_handler {
+        *sub_phase
+    } else {
+        return;
+    };
     // Helper: check if a point is inside a rect defined in 640x480 space.
     // We scale the mouse coordinates from window size to 640x480.
     // Scale mouse coords to the 640x480 game coordinate space.
@@ -563,6 +569,52 @@ fn handle_office_input(game: &mut GameLoop, event: &Event) {
             x, y, ..
         } => {
             let (ww, wh) = (game.window_width, game.window_height);
+
+            // --- HireMercs: clicking a merc row hires or fires them ---
+            if current_sub == OfficePhase::HireMercs {
+                // The merc list renders starting at y=85px (content_y=50 + header=35).
+                // Each row is 16px tall. Match the render order: sorted by rating desc.
+                let list_start_y = 85i32;
+                let row_h = 16i32;
+                let click_y = *y;
+
+                if click_y >= list_start_y {
+                    let row = ((click_y - list_start_y) / row_h) as usize;
+
+                    // Build the same sorted merc list as the renderer.
+                    let mut sorted_mercs: Vec<_> = ruleset.mercs.values().collect();
+                    sorted_mercs.sort_by(|a, b| b.rating.cmp(&a.rating));
+
+                    if let Some(merc) = sorted_mercs.get(row) {
+                        let already_hired = game.game_state.team.iter().any(|m| m.name == merc.name);
+
+                        if already_hired {
+                            // Fire the merc — remove from team (no refund, like the original).
+                            game.game_state.team.retain(|m| m.name != merc.name);
+                            info!(name = %merc.name, "Fired mercenary");
+                        } else if merc.avail == 1 {
+                            // Hire the merc — check funds and team size.
+                            if game.game_state.team.len() >= 8 {
+                                warn!("Team full (max 8 mercs)");
+                            } else if game.game_state.funds < merc.fee_hire as i64 {
+                                warn!(name = %merc.name, cost = merc.fee_hire, funds = game.game_state.funds,
+                                      "Cannot afford to hire");
+                            } else {
+                                // Deduct funds and add to team.
+                                game.game_state.funds -= merc.fee_hire as i64;
+                                let id = game.game_state.team.len() as u32 + 1;
+                                let active = ow_core::merc::ActiveMerc::from_data(id, merc);
+                                info!(name = %merc.name, cost = merc.fee_hire,
+                                      remaining_funds = game.game_state.funds, "Hired mercenary");
+                                game.game_state.team.push(active);
+                            }
+                        } else {
+                            info!(name = %merc.name, "Merc unavailable for hire");
+                        }
+                    }
+                }
+                return; // Don't fall through to office overview hotspots.
+            }
 
             // Check each clickable hotspot (640x480 coords from the original game).
             // Hotspots are checked in priority order — more specific areas first
@@ -598,8 +650,8 @@ fn handle_office_input(game: &mut GameLoop, event: &Event) {
                 // World map (on wall, upper right) → Intel
                 Some(("Mission Intel", OfficePhase::Intel))
             } else if check_hit(*x, *y, 70, 170, 130, 370, ww, wh) {
-                // Filing cabinet (left wall) → Equipment
-                Some(("Equipment (Cabinet)", OfficePhase::Equipment))
+                // Filing cabinet (left wall) → View Files / Intel
+                Some(("View Files (Cabinet)", OfficePhase::Intel))
             } else if check_hit(*x, *y, 100, 360, 220, 430, ww, wh) {
                 // Magazines on desk (lower left) → Equipment
                 Some(("Equipment (Magazines)", OfficePhase::Equipment))
@@ -1254,7 +1306,7 @@ fn render_office(
                 ((400,340,520,430), "HIRE (Phone)", Color::RGBA(255,50,50,100)),
                 ((480,230,560,310), "CONTRACTS (Fax)", Color::RGBA(50,50,255,100)),
                 ((490,50,620,190), "INTEL (Map)", Color::RGBA(255,255,50,100)),
-                ((70,170,130,370), "EQUIP (Cabinet)", Color::RGBA(50,255,50,100)),
+                ((70,170,130,370), "FILES (Cabinet)", Color::RGBA(50,255,50,100)),
                 ((100,360,220,430), "EQUIP (Mags)", Color::RGBA(50,255,50,100)),
                 ((230,330,310,380), "TRAIN (Calc)", Color::RGBA(255,50,255,100)),
                 ((240,40,370,250), "MISSION (Door)", Color::RGBA(255,150,0,100)),
