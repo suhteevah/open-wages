@@ -455,7 +455,7 @@ fn handle_office_input(game: &mut GameLoop, event: &Event) {
         keycode: Some(key), ..
     } = event
     {
-        let new_sub = match key {
+        let new_sub = match *key {
             Keycode::Num1 => Some(OfficePhase::Overview),
             Keycode::Num2 => Some(OfficePhase::HireMercs),
             Keycode::Num3 => Some(OfficePhase::Equipment),
