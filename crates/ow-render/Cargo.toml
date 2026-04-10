@@ -19,3 +19,7 @@ tracing-subscriber = { workspace = true }
 [[bin]]
 name = "sprite-viewer"
 path = "src/bin/sprite_viewer.rs"
+
+[[bin]]
+name = "map-viewer"
+path = "src/bin/map_viewer.rs"

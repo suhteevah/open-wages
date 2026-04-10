@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
 use crate::combat::CombatState;
+use crate::economy::Ledger;
 use crate::merc::ActiveMerc;
 use crate::weather::Weather;
 
@@ -71,7 +72,9 @@ pub struct GameState {
     pub phase: GamePhase,
     /// The player's team of hired mercenaries.
     pub team: Vec<ActiveMerc>,
-    /// Current funds in dollars.
+    /// Financial ledger tracking funds and transaction history.
+    pub ledger: Ledger,
+    /// Current funds in dollars (legacy shortcut — prefer `ledger.balance()`).
     pub funds: i64,
     /// Reputation / prestige score (can be negative).
     pub reputation: i32,
@@ -88,6 +91,7 @@ impl GameState {
         Self {
             phase: GamePhase::Office(OfficePhase::Overview),
             team: Vec::new(),
+            ledger: Ledger::new(starting_funds),
             funds: starting_funds,
             reputation: 0,
             current_mission: None,

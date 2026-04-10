@@ -26,7 +26,7 @@ pub enum AiNodesError {
     #[error("line {line}: failed to parse node count: {detail}")]
     InvalidNodeCount { line: usize, detail: String },
 
-    #[error("line {line}: expected 7 fields per node, got {found}")]
+    #[error("line {line}: expected 7 or 8 fields per node, got {found}")]
     InvalidFieldCount { line: usize, found: usize },
 
     #[error("line {line}: failed to parse field '{field}': {detail}")]
@@ -57,6 +57,9 @@ pub struct AiNode {
     pub west: i32,
     /// Location flag: 0 = outdoor, 1 = building, 4 = special.
     pub inside: u8,
+    /// Optional 8th field found in some AINODE files (e.g. AINODE03.DAT).
+    /// Purpose unknown — possibly a secondary flag or group ID.
+    pub extra: Option<i32>,
 }
 
 /// The complete AI pathfinding node graph for a mission.
@@ -118,11 +121,13 @@ pub fn parse_ai_nodes(path: &Path) -> Result<AiNodeGraph, AiNodesError> {
             continue;
         }
 
-        // Data line: 7 whitespace-separated integers.
+        // Data line: 7 or 8 whitespace-separated integers.
+        // Most AINODE files use 7 fields, but some (e.g. AINODE03.DAT) have an
+        // optional 8th field whose purpose is unknown.
         let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() != 7 {
+        if fields.len() != 7 && fields.len() != 8 {
             warn!(
-                "line {line_num}: unexpected field count {} (expected 7), skipping: {line}",
+                "line {line_num}: unexpected field count {} (expected 7 or 8), skipping: {line}",
                 fields.len()
             );
             return Err(AiNodesError::InvalidFieldCount {
@@ -141,6 +146,15 @@ pub fn parse_ai_nodes(path: &Path) -> Result<AiNodeGraph, AiNodesError> {
                 })
         };
 
+        // Parse the optional 8th field if present.
+        let extra = if fields.len() == 8 {
+            let val = parse_field(7, "extra")? as i32;
+            trace!("line {line_num}: 8th field present (extra={val})");
+            Some(val)
+        } else {
+            None
+        };
+
         let node = AiNode {
             tile_id: parse_field(0, "tile_id")? as u32,
             grid: parse_field(1, "grid")? as u8,
@@ -149,6 +163,7 @@ pub fn parse_ai_nodes(path: &Path) -> Result<AiNodeGraph, AiNodesError> {
             south: parse_field(4, "south")? as i32,
             west: parse_field(5, "west")? as i32,
             inside: parse_field(6, "inside")? as u8,
+            extra,
         };
 
         let node_idx = nodes.len();
@@ -226,6 +241,7 @@ mod tests {
                 south: -1,
                 west: -1,
                 inside: 0,
+                extra: None,
             }
         );
         assert_eq!(graph.nodes[1].inside, 1);
@@ -292,5 +308,49 @@ mod tests {
         let f = write_temp_file(data);
         let err = parse_ai_nodes(f.path()).unwrap_err();
         assert!(matches!(err, AiNodesError::InvalidFieldCount { found: 4, .. }));
+    }
+
+    #[test]
+    fn eight_field_lines_accepted() {
+        // AINODE03.DAT has 8-field lines with an extra trailing integer.
+        let data = "\
+# AI NODE LIST -- MISSION #3\r\n\
+\r\n\
+3 ; Total # Of Nodes In The File\r\n\
+\r\n\
+;Tile\tGrid\tNorth\tEast\tSouth\tWest\tInside\r\n\
+;-----------------------------------------------------\r\n\
+\r\n\
+ 1\t1\t-1\t42\t-1\t-1\t-1\t0\r\n\
+ 2\t1\t-1\t-1\t-1\t-1\t0\r\n\
+ 3\t1\t-1\t-1\t-1\t-1\t0\t5\r\n\
+";
+        let f = write_temp_file(data);
+        let graph = parse_ai_nodes(f.path()).unwrap();
+
+        assert_eq!(graph.total_nodes, 3);
+        assert_eq!(graph.nodes.len(), 3);
+
+        // First node has 8 fields — extra = Some(0).
+        assert_eq!(graph.nodes[0].extra, Some(0));
+        assert_eq!(graph.nodes[0].inside, 255); // -1 as u8
+
+        // Second node has 7 fields — extra = None.
+        assert_eq!(graph.nodes[1].extra, None);
+
+        // Third node has 8 fields — extra = Some(5).
+        assert_eq!(graph.nodes[2].extra, Some(5));
+    }
+
+    #[test]
+    fn nine_field_line_rejected() {
+        let data = "\
+# test\r\n\
+1 ; Total # Of Nodes In The File\r\n\
+ 1\t1\t-1\t-1\t-1\t-1\t0\t0\t99\r\n\
+";
+        let f = write_temp_file(data);
+        let err = parse_ai_nodes(f.path()).unwrap_err();
+        assert!(matches!(err, AiNodesError::InvalidFieldCount { found: 9, .. }));
     }
 }

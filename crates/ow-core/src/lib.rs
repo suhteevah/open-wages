@@ -12,7 +12,14 @@ pub mod game_state;
 pub mod pathfinding;
 pub mod los;
 
+pub mod economy;
+pub mod hiring;
+pub mod inventory;
+pub mod contract;
+
+pub mod mission_setup;
+pub mod actions;
+pub mod ai;
+
 // TODO: Future modules
-// pub mod ai;
-// pub mod economy;
 // pub mod map;

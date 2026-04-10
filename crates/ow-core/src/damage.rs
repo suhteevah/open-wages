@@ -139,7 +139,7 @@ mod tests {
             vec![20, 35, 50, 60, 70], // range 3
             vec![5, 15, 30, 45, 55],  // range 4
         ];
-        let json = serde_json::json!({ "rows": rows });
+        let json = serde_json::json!({ "rows": rows, "aux_sections": [] });
         serde_json::from_value(json).expect("HitTable deserialization")
     }
 
