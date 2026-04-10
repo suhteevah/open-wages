@@ -1373,8 +1373,14 @@ fn handle_debrief_input(game: &mut GameLoop, event: &Event) {
     } = event
     {
         info!("Debrief acknowledged -- returning to Office");
-        game.game_state.missions_completed += 1;
+        // Clear mission state for next contract.
         game.game_state.current_mission = None;
+        game.enemies.clear();
+        // Reset merc AP for next mission.
+        for merc in &mut game.game_state.team {
+            merc.reset_ap();
+            merc.position = None;
+        }
         game.game_state
             .set_phase(GamePhase::Office(OfficePhase::Overview));
         game.phase_handler = PhaseHandler::Office {
@@ -1505,14 +1511,33 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
         return;
     }
 
-    // Victory: all enemies eliminated.
-    // TODO: Check MissionState.enemy_units once wired. For now this is a no-op.
-    // When wired:
-    //   let all_enemies_dead = mission_state.enemy_units.iter().all(|e| e.current_hp == 0);
-    //   if all_enemies_dead {
-    //       game.game_state.set_phase(GamePhase::Mission(MissionPhase::Extraction));
-    //       game.phase_handler = PhaseHandler::Extraction;
-    //   }
+    // Victory: all enemies eliminated — transition to extraction then debrief.
+    let all_enemies_dead = !game.enemies.is_empty()
+        && game.enemies.iter().all(|e| e.current_hp == 0);
+
+    if all_enemies_dead {
+        info!("All enemies eliminated — MISSION COMPLETE!");
+        // Credit the mission bonus to funds.
+        if let Some(ref mission_ctx) = game.game_state.current_mission {
+            info!(mission = %mission_ctx.name, "Mission successful, transitioning to debrief");
+        }
+        game.game_state.missions_completed += 1;
+
+        // Credit bonus from the contract.
+        // The advance was already credited when the contract was accepted.
+        // Now add the completion bonus.
+        let mission_key = game.game_state.current_mission.as_ref()
+            .map(|m| m.name.clone())
+            .unwrap_or_default();
+        // We don't have the ruleset here, so we'll add a flat bonus for now.
+        // TODO: Look up actual bonus from ruleset.
+        let bonus = 200_000i64;
+        game.game_state.funds += bonus;
+        info!(bonus, total_funds = game.game_state.funds, "Mission bonus credited");
+
+        game.game_state.set_phase(GamePhase::Debrief);
+        game.phase_handler = PhaseHandler::Debrief { success: true };
+    }
 }
 
 // ===========================================================================
@@ -1544,7 +1569,7 @@ fn render_phase(
             render_mission_map(game, canvas, tile_renderer, loaded_map, mission_iso, text, tc, &game.enemies);
         }
         PhaseHandler::Extraction => render_extraction(game, canvas),
-        PhaseHandler::Debrief { success } => render_debrief(canvas, *success, text, tc),
+        PhaseHandler::Debrief { success } => render_debrief(game, canvas, *success, text, tc),
         PhaseHandler::Paused { .. } => render_pause(canvas, text, tc),
     }
 }
@@ -2152,37 +2177,35 @@ fn render_extraction(game: &GameLoop, canvas: &mut Canvas<Window>) {
 // ---------------------------------------------------------------------------
 
 /// Render the debrief screen: large result indicator + "press enter" prompt.
-fn render_debrief(canvas: &mut Canvas<Window>, success: bool, _text: &TextRenderer, _tc: &TextureCreator<WindowContext>) {
+fn render_debrief(game: &GameLoop, canvas: &mut Canvas<Window>, success: bool, text: &TextRenderer, tc: &TextureCreator<WindowContext>) {
     let (w, h) = canvas.output_size().unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
 
-    let color = if success {
-        Color::RGB(50, 180, 50)
-    } else {
-        Color::RGB(180, 50, 50)
-    };
+    // Dark background
+    canvas.set_draw_color(Color::RGB(15, 15, 25));
+    canvas.clear();
 
-    let rect_w = 300u32;
-    let rect_h = 100u32;
-    canvas.set_draw_color(color);
-    canvas
-        .fill_rect(sdl2::rect::Rect::new(
-            ((w - rect_w) / 2) as i32,
-            ((h - rect_h) / 2) as i32,
-            rect_w,
-            rect_h,
-        ))
-        .ok();
+    // Title
+    let title = if success { "MISSION COMPLETE" } else { "MISSION FAILED" };
+    let title_color = if success { Color::RGB(80, 255, 80) } else { Color::RGB(255, 80, 80) };
+    text.draw_header(canvas, tc, title, (w / 2 - 150) as i32, 100, title_color).ok();
 
-    // "Press enter" indicator
-    canvas.set_draw_color(Color::RGB(150, 150, 150));
-    canvas
-        .fill_rect(sdl2::rect::Rect::new(
-            ((w - 100) / 2) as i32,
-            ((h + rect_h) / 2 + 20) as i32,
-            100,
-            10,
-        ))
-        .ok();
+    // Stats
+    let mut y = 180i32;
+    let survived = game.game_state.team.iter().filter(|m| m.is_alive()).count();
+    let total = game.game_state.team.len();
+    let killed = game.enemies.iter().filter(|e| e.current_hp == 0).count();
+    let total_enemies = game.enemies.len();
+
+    text.draw(canvas, tc, &format!("Mercs survived: {survived}/{total}"), 200, y, Color::RGB(200, 200, 200)).ok();
+    y += 30;
+    text.draw(canvas, tc, &format!("Enemies eliminated: {killed}/{total_enemies}"), 200, y, Color::RGB(200, 200, 200)).ok();
+    y += 30;
+    text.draw(canvas, tc, &format!("Missions completed: {}", game.game_state.missions_completed), 200, y, Color::RGB(200, 200, 200)).ok();
+    y += 30;
+    text.draw(canvas, tc, &format!("Current funds: ${}", game.game_state.funds), 200, y, Color::RGB(200, 200, 200)).ok();
+    y += 50;
+
+    text.draw(canvas, tc, "Press ENTER to return to office", 200, y, Color::RGB(150, 150, 180)).ok();
 }
 
 // ---------------------------------------------------------------------------
