@@ -1,7 +1,25 @@
 //! Initiative-based combat system.
 //!
-//! All units (player and enemy) are sorted into a single initiative queue
-//! each round. This is NOT IGOUGO — a fast enemy acts before a slow player merc.
+//! # Key Design: NOT IGOUGO
+//!
+//! Wages of War uses an **initiative-based** turn system, NOT "I Go, You Go"
+//! (IGOUGO). All units — player mercs, enemies, and neutrals — are sorted
+//! into a single initiative queue each round. A fast enemy acts before a slow
+//! player merc. This creates tension because you can't safely move all your
+//! units before the enemy responds.
+//!
+//! # How Initiative Works
+//!
+//! Each unit's initiative score is computed from their stats (experience +
+//! willpower). Higher initiative = acts earlier in the round. Ties are broken
+//! by unit ID (lower ID acts first, giving a slight edge to earlier-hired mercs).
+//!
+//! # Suppression
+//!
+//! When a unit takes incoming fire (even misses), it can become **suppressed**.
+//! Suppression halves the unit's initiative for the next round, pushing it
+//! later in the turn order. This models the real-world effect of suppressive
+//! fire — even if you don't hit anyone, you slow them down and disrupt their plans.
 
 use std::collections::BinaryHeap;
 
@@ -11,10 +29,16 @@ use tracing::{debug, info, trace};
 use crate::merc::{ActiveMerc, MercId};
 
 /// Which side a unit fights for.
+///
+/// Neutral units (civilians, mission-critical NPCs) are in the initiative queue
+/// but generally don't attack. They can still be killed — friendly fire on
+/// neutrals typically fails the mission or reduces reputation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Faction {
     Player,
     Enemy,
+    /// Non-combatant. Present in the initiative queue but typically only moves
+    /// (flee behavior). Killing neutrals has consequences.
     Neutral,
 }
 
@@ -26,7 +50,14 @@ pub struct CombatUnit {
 }
 
 /// An entry in the initiative priority queue.
-/// Higher initiative = acts first. Ties broken by unit id (lower id first).
+///
+/// Rust's `BinaryHeap` is a max-heap, so higher values are popped first.
+/// This naturally fits our needs: higher initiative = acts first.
+///
+/// Tie-breaking uses reversed unit_id comparison (`other.unit_id.cmp(&self.unit_id)`)
+/// so that the LOWER id wins ties. This gives a consistent, deterministic turn
+/// order when two units have equal initiative — earlier-hired mercs (lower IDs)
+/// get a slight edge, which matches the original game's behavior.
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct InitiativeEntry {
     initiative: u32,
@@ -35,9 +66,11 @@ struct InitiativeEntry {
 
 impl Ord for InitiativeEntry {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Primary sort: higher initiative acts first (natural max-heap order).
+        // Secondary sort: lower unit_id wins ties (reversed comparison).
         self.initiative
             .cmp(&other.initiative)
-            .then_with(|| other.unit_id.cmp(&self.unit_id)) // lower id wins ties
+            .then_with(|| other.unit_id.cmp(&self.unit_id))
     }
 }
 
@@ -59,17 +92,30 @@ pub enum CombatPhase {
 }
 
 /// Top-level combat state managing the initiative queue and turn flow.
+///
+/// The combat loop works as follows:
+/// 1. Call `begin_round()` to increment the round counter, recalculate all
+///    initiative values, and build the priority queue.
+/// 2. Call `next_unit()` repeatedly to pop units from the queue in initiative order.
+/// 3. After each unit acts, call `end_turn()` to signal it's done.
+/// 4. When `next_unit()` returns `None`, the round is complete — go to step 1.
+///
+/// Because factions are interleaved in the queue, enemy and player turns
+/// alternate freely based on initiative scores.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CombatState {
-    /// All participating units, indexed by their `merc.id`.
+    /// All participating units. This is a flat list, not faction-separated,
+    /// because the initiative system treats all factions uniformly.
     pub units: Vec<CombatUnit>,
-    /// Current round number (1-based).
+    /// Current round number (1-based). Incremented at the start of each round.
     pub turn_number: u32,
-    /// Id of the unit currently acting, if any.
+    /// Id of the unit currently acting, if any. `None` between turns.
     pub current_unit_id: Option<MercId>,
     /// Current phase of the round.
     pub phase: CombatPhase,
-    /// The initiative queue (not serialized — rebuilt each round).
+    /// The initiative queue. This is a max-heap — highest initiative is popped
+    /// first. Skipped during serialization because it's rebuilt fresh each round
+    /// from unit stats (which may change due to suppression, injuries, etc.).
     #[serde(skip)]
     queue: BinaryHeap<InitiativeEntry>,
 }
@@ -89,15 +135,25 @@ impl CombatState {
 
     /// Begin a new combat round: increment turn counter, recalculate all
     /// initiatives, build the priority queue.
+    ///
+    /// Initiative is recalculated every round because it can change mid-combat:
+    /// suppression halves initiative, injuries reduce stats, and experience
+    /// gained in combat can increase it. This means turn order can shift between
+    /// rounds — a suppressed unit may act last this round but first next round
+    /// once the suppression wears off.
     pub fn begin_round(&mut self) {
         self.turn_number += 1;
         self.phase = CombatPhase::InProgress;
         self.current_unit_id = None;
         self.queue.clear();
 
+        // Rebuild the initiative queue from scratch. We only queue living units
+        // and reset their AP to full at the start of each round.
         for unit in &mut self.units {
             if unit.merc.is_alive() {
                 unit.merc.reset_ap();
+                // initiative() factors in suppression — a suppressed unit's
+                // initiative is halved, pushing it later in the turn order.
                 let init = unit.merc.initiative();
                 trace!(
                     id = unit.merc.id,
@@ -123,8 +179,13 @@ impl CombatState {
     /// Pop the next unit from the initiative queue.
     ///
     /// Returns `None` when all units have acted this round (sets phase to `RoundComplete`).
+    ///
+    /// Units can die mid-round (killed by another unit's action), so we skip
+    /// any dead units still in the queue. We also skip units that can no longer
+    /// act (0 AP remaining). This is why we check `is_alive()` and `can_act()`
+    /// here rather than filtering at queue-build time.
     pub fn next_unit(&mut self) -> Option<MercId> {
-        // Skip dead units that may have been killed mid-round
+        // Skip dead or exhausted units that were still in the queue when killed/drained.
         while let Some(entry) = self.queue.pop() {
             if let Some(unit) = self.find_unit(entry.unit_id) {
                 if unit.merc.is_alive() && unit.merc.can_act() {
@@ -146,10 +207,15 @@ impl CombatState {
     }
 
     /// Signal that the current unit has finished its turn.
+    ///
+    /// Forces the unit's AP to 0 so `can_act()` returns false if the unit
+    /// somehow re-enters the queue (defensive measure). In the original game,
+    /// ending your turn is irreversible — you can't "undo" and keep acting.
     pub fn end_turn(&mut self) {
         if let Some(id) = self.current_unit_id {
             if let Some(unit) = self.find_unit_mut(id) {
-                unit.merc.current_ap = 0; // force turn end
+                // Zero out AP to prevent the unit from acting again this round.
+                unit.merc.current_ap = 0;
                 trace!(id, "Unit ended turn");
             }
         }
@@ -175,9 +241,15 @@ impl CombatState {
     }
 
     /// Check if combat is over (one side eliminated).
+    ///
+    /// Combat ends when either all player mercs or all enemies are dead.
+    /// Neutral units don't count — a battle can end with civilians still alive.
+    /// The caller checks which side survived to determine victory vs defeat.
     pub fn is_combat_over(&self) -> bool {
         let players_alive = self.living_units(Faction::Player).len();
         let enemies_alive = self.living_units(Faction::Enemy).len();
+        // Either side being wiped out ends combat. Both being zero (mutual
+        // annihilation) also ends it — the game treats this as a loss.
         players_alive == 0 || enemies_alive == 0
     }
 }

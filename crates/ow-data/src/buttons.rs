@@ -1,10 +1,46 @@
 //! Parser for `*.BTN` — UI button layout definition files.
 //!
-//! Each `.BTN` file defines clickable regions for a game screen (combat HUD,
-//! armaments exchange, etc.). Buttons reference sprite rectangles from a
-//! companion sprite sheet for their visual states (normal, hover, pressed, disabled).
+//! # What BTN Files Define
 //!
-//! ## File Structure
+//! Each `.BTN` file defines the clickable UI regions for a specific game screen.
+//! For example, `COMBAT.BTN` defines the combat HUD buttons (fire, move, end turn),
+//! while `ARMEXCH.BTN` defines the armaments exchange (buy/sell equipment) buttons.
+//! The buttons are purely positional — they define WHERE you can click, not what
+//! happens when you do (that's handled by the game's event system).
+//!
+//! Buttons reference sprite rectangles from a companion sprite sheet (`.SPR` file)
+//! for their visual states: normal/idle, pressed/down, hover/highlight, and
+//! disabled/grayed. A button with all-zero sprite rects is "invisible" — it has
+//! a clickable hit area but no visual representation (used for map scrolling
+//! regions and full-screen click catchers).
+//!
+//! # Page/Tab Grouping
+//!
+//! Field 3 (`page`) groups buttons into pages or tabs. Only one page is shown
+//! at a time — switching tabs hides the current page's buttons and shows the
+//! new page's. Page 0 buttons are typically always visible (global controls),
+//! while pages 1+ are tab-specific (e.g., different weapon categories in a shop).
+//!
+//! # The 13-Line-Per-Button Format
+//!
+//! Each `[Button]` block contains exactly 13 data lines:
+//! ```text
+//! Line 1:  field_1       — Unknown (always 0). Possibly button type or parent.
+//! Line 2:  field_2       — Unknown (always 0). Possibly z-order.
+//! Line 3:  page          — Page/tab group number.
+//! Line 4:  id            — 1-based button identifier, unique within the file.
+//! Line 5:  hit_rect      — Clickable area (x1,y1,x2,y2 in 640x480 screen coords).
+//! Line 6:  sprite_normal — Source rect for idle state in the sprite sheet.
+//! Line 7:  sprite_pressed— Source rect for pressed/down state.
+//! Line 8:  sprite_hover  — Source rect for mouse-over state.
+//! Line 9:  sprite_disabled— Source rect for grayed-out/disabled state.
+//! Line 10: param_1       — Unknown (always 0).
+//! Line 11: param_2       — Unknown (always 0).
+//! Line 12: param_3       — Unknown (always 0).
+//! Line 13: param_4       — Unknown (always 0).
+//! ```
+//!
+//! ## Full File Structure
 //!
 //! ```text
 //! [NrButtons]
@@ -20,6 +56,11 @@ use std::path::Path;
 use tracing::{debug, info, trace, warn};
 
 /// A pixel-space rectangle defined by its top-left and bottom-right corners.
+///
+/// Coordinates are in the original 640x480 screen space. The renderer must
+/// scale these to the actual window size. Note: these are NOT sprite-sheet
+/// pixel coordinates for hit_rect — they're screen positions. But for
+/// sprite_normal/pressed/hover/disabled, they ARE sprite-sheet source rects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Rect {
     pub x1: i32,
@@ -30,33 +71,54 @@ pub struct Rect {
 
 impl Rect {
     /// Returns `true` if all coordinates are zero (null/empty rectangle).
+    ///
+    /// An all-zero rect indicates an "invisible" button with no sprite — used
+    /// for click regions that have no visual representation (e.g., the full-screen
+    /// click catcher in FULLMAP.BTN that spans 0,0,639,479 with zero sprite rects).
     pub fn is_empty(&self) -> bool {
         self.x1 == 0 && self.y1 == 0 && self.x2 == 0 && self.y2 == 0
     }
 }
 
 /// A single button definition from a `.BTN` file.
+///
+/// The 13 fields map directly to the 13 data lines in each `[Button]` block.
+/// Fields marked "always 0 in observed data" are preserved for round-trip
+/// fidelity — we don't know if modded data files use them, so we parse them
+/// faithfully rather than discarding.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Button {
     /// Unknown field (always 0 in observed data). Possibly button type or parent group.
+    /// Preserved for round-trip fidelity with original data.
     pub field_1: u32,
     /// Unknown field (always 0 in observed data). Possibly layer/z-order.
+    /// Preserved for round-trip fidelity with original data.
     pub field_2: u32,
-    /// Button page/tab group. Buttons are shown one page at a time.
+    /// Button page/tab group. Buttons with the same page number are shown/hidden
+    /// together. Page 0 = always visible, pages 1+ = tab-specific. The game
+    /// only renders buttons whose page matches the currently active tab.
     pub page: u32,
-    /// 1-based button identifier, unique within the file.
+    /// 1-based button identifier, unique within the file. The game's event
+    /// handler uses this ID to determine what action to take when clicked.
     pub id: u32,
-    /// Screen-space clickable rectangle (640x480 coordinates).
+    /// Screen-space clickable rectangle (640x480 coordinates). This is where
+    /// the player can click to activate this button. A rect of (0,0,639,479)
+    /// means the entire screen is clickable (used for full-screen click catchers).
     pub hit_rect: Rect,
-    /// Sprite source rectangle for the normal/idle state.
+    /// Sprite source rectangle for the normal/idle state. All-zero means the
+    /// button is invisible (no visual representation drawn on screen).
     pub sprite_normal: Rect,
-    /// Sprite source rectangle for the pressed/down state.
+    /// Sprite source rectangle for the pressed/down state. Shown while the
+    /// mouse button is held down over this button.
     pub sprite_pressed: Rect,
-    /// Sprite source rectangle for the hover/highlight state.
+    /// Sprite source rectangle for the hover/highlight state. Shown when the
+    /// mouse is over the button but not clicking. All-zero = no hover effect.
     pub sprite_hover: Rect,
-    /// Sprite source rectangle for the disabled/grayed state.
+    /// Sprite source rectangle for the disabled/grayed state. Shown when the
+    /// button is inactive (e.g., "Fire" when no weapon equipped). Often shares
+    /// the same rect as sprite_hover when the original designers were lazy.
     pub sprite_disabled: Rect,
-    /// Unknown parameter (always 0 in observed data).
+    /// Unknown parameter (always 0 in observed data). May be callback/handler index.
     pub param_1: i32,
     /// Unknown parameter (always 0 in observed data).
     pub param_2: i32,
@@ -95,6 +157,10 @@ pub enum ButtonError {
 }
 
 /// Parse a comma-separated rectangle `x1,y1,x2,y2` from a line.
+///
+/// The original data files sometimes have trailing spaces after rect values
+/// (e.g., "1,199,24,222 "), so we trim before splitting. Values are signed
+/// (i32) because some sprite sheets use negative offsets for alignment.
 fn parse_rect(s: &str, lineno: usize) -> Result<Rect, ButtonError> {
     let trimmed = s.trim();
     let parts: Vec<&str> = trimmed.split(',').collect();
@@ -150,7 +216,8 @@ pub fn parse_buttons(path: &Path) -> Result<ButtonLayout, ButtonError> {
         idx += 1;
     }
 
-    // Expect [NrButtons] header.
+    // The [NrButtons] section header must appear first. This bracket-delimited
+    // format is an INI-style convention used across several Wages of War file types.
     if idx >= lines.len() || !lines[idx].1.eq_ignore_ascii_case("[NrButtons]") {
         return Err(ButtonError::MissingHeader);
     }
@@ -187,7 +254,8 @@ pub fn parse_buttons(path: &Path) -> Result<ButtonLayout, ButtonError> {
 
         let (marker_lineno, marker) = lines[idx];
 
-        // Check for [End] terminator.
+        // [End] is required — it marks the definitive end of the button list.
+        // Without it, we can't distinguish a truncated file from a complete one.
         if marker.eq_ignore_ascii_case("[End]") {
             debug!(line = marker_lineno, "Hit [End] terminator");
             found_end = true;
@@ -203,7 +271,9 @@ pub fn parse_buttons(path: &Path) -> Result<ButtonLayout, ButtonError> {
         }
         idx += 1;
 
-        // Read exactly 13 data lines for this button block.
+        // Each button block has exactly 13 data lines after the [Button] marker.
+        // The order is fixed: field_1, field_2, page, id, hit_rect, then 4 sprite
+        // rects (normal, pressed, hover, disabled), then 4 unknown params.
         let mut data_lines: Vec<(usize, &str)> = Vec::with_capacity(13);
         while data_lines.len() < 13 && idx < lines.len() {
             data_lines.push(lines[idx]);
@@ -220,15 +290,18 @@ pub fn parse_buttons(path: &Path) -> Result<ButtonLayout, ButtonError> {
             });
         }
 
+        // Parse the 13 data lines in order. Lines 1-4 are scalar integers,
+        // line 5 is the screen-space hit rect, lines 6-9 are sprite source rects
+        // for the 4 visual states, and lines 10-13 are unknown params.
         let field_1: u32 = parse_int(data_lines[0].1, data_lines[0].0)?;
         let field_2: u32 = parse_int(data_lines[1].1, data_lines[1].0)?;
-        let page: u32 = parse_int(data_lines[2].1, data_lines[2].0)?;
-        let id: u32 = parse_int(data_lines[3].1, data_lines[3].0)?;
-        let hit_rect = parse_rect(data_lines[4].1, data_lines[4].0)?;
-        let sprite_normal = parse_rect(data_lines[5].1, data_lines[5].0)?;
-        let sprite_pressed = parse_rect(data_lines[6].1, data_lines[6].0)?;
-        let sprite_hover = parse_rect(data_lines[7].1, data_lines[7].0)?;
-        let sprite_disabled = parse_rect(data_lines[8].1, data_lines[8].0)?;
+        let page: u32 = parse_int(data_lines[2].1, data_lines[2].0)?;   // tab grouping
+        let id: u32 = parse_int(data_lines[3].1, data_lines[3].0)?;     // unique button ID
+        let hit_rect = parse_rect(data_lines[4].1, data_lines[4].0)?;   // clickable area
+        let sprite_normal = parse_rect(data_lines[5].1, data_lines[5].0)?;   // idle look
+        let sprite_pressed = parse_rect(data_lines[6].1, data_lines[6].0)?;  // click look
+        let sprite_hover = parse_rect(data_lines[7].1, data_lines[7].0)?;    // mouseover look
+        let sprite_disabled = parse_rect(data_lines[8].1, data_lines[8].0)?; // grayed look
         let param_1: i32 = parse_int(data_lines[9].1, data_lines[9].0)?;
         let param_2: i32 = parse_int(data_lines[10].1, data_lines[10].0)?;
         let param_3: i32 = parse_int(data_lines[11].1, data_lines[11].0)?;
@@ -263,6 +336,9 @@ pub fn parse_buttons(path: &Path) -> Result<ButtonLayout, ButtonError> {
         return Err(ButtonError::MissingEnd);
     }
 
+    // Validate that the declared count matches actual buttons parsed. A mismatch
+    // usually indicates a corrupted or hand-edited file — we reject it rather
+    // than silently using partial data, since missing buttons would break the UI.
     if buttons.len() != expected_count {
         warn!(
             expected = expected_count,

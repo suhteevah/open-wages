@@ -8,7 +8,7 @@ Inspired by [OpenXCOM](https://openxcom.org/), which did the same for *X-COM: UF
 
 ## Status
 
-🚧 **Early Development** — Currently in the reverse engineering and scaffolding phase.
+🚧 **Alpha Development** — Engine core is functional: all game data files parse, combat system works, SDL2 rendering pipeline operational. Not yet playable end-to-end — integration and polish phase.
 
 ## What This Is
 

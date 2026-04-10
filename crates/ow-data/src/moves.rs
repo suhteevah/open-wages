@@ -1,9 +1,50 @@
 //! Parser for `MOVESnn.DAT` — AI movement orders / behavior scripts.
 //!
-//! These files define initial placement and behavioral scripts for all
-//! AI-controlled entities (enemies, NPCs, vehicles) on a given mission map.
-//! Each entity has A/B variants and a 6-level alert escalation system with
-//! up to 10 waypoint commands per level.
+//! # What MOVES Files Do
+//!
+//! Each mission has a `MOVESnn.DAT` file (e.g., `MOVES01.DAT` for mission 1)
+//! that scripts all AI-controlled entities on the map. This is NOT real-time
+//! pathfinding — it's a pre-authored waypoint system. Each enemy/NPC has a
+//! set of waypoints they follow, and their behavior changes based on an
+//! **alert escalation** system (see below).
+//!
+//! # A/B Variants
+//!
+//! Every entity has two behavior blocks: an **A variant** and a **B variant**.
+//! The game randomly selects one at mission start, giving replay variety.
+//! For example, "Enemy 1A" might patrol the north corridor while "Enemy 1B"
+//! patrols the south. Only one variant is active per playthrough.
+//!
+//! # Alert Escalation (6 Levels)
+//!
+//! Each variant has 6 alert levels with activation thresholds (0-100):
+//! - **Level 1**: Default patrol behavior (threshold ~50-75 = likely to activate)
+//! - **Level 2-4**: Intermediate escalation (investigate gunfire, take cover)
+//! - **Level 5**: High alert (aggressive search patterns)
+//! - **Level 6**: Maximum alert / retreat behavior (threshold ~60-100)
+//!
+//! A threshold of 0 means that level is disabled. The game's alert system
+//! raises the global alert value as combat occurs, triggering higher levels.
+//!
+//! # Action Codes (8 Types)
+//!
+//! Each alert level has up to 10 waypoint commands, each a triplet of
+//! `Action TileID Grid`:
+//! - **M** (Move): Walk to the target tile
+//! - **I** (Investigate): Move to tile cautiously, weapon ready
+//! - **C** (Cover): Take cover at tile (crouch/prone)
+//! - **E** (Escape): Flee to tile (used in level 6 for retreat)
+//! - **S** (Stand): Hold position at tile
+//! - **V** (Vehicle): Board/operate attached vehicle
+//! - **W** (Wait): Pause at current position for a duration
+//! - **N** (None): No-op / empty slot (tile_id and grid are 0)
+//!
+//! # Vehicle Spawns vs Crew Attachment
+//!
+//! Vehicles are spawned separately at the end of the file with their own
+//! tile positions. Crew members reference vehicles via `attached_to` — e.g.,
+//! `Attached To: 1` means this entity crews Vehicle 1. The `npc_type` field
+//! distinguishes infantry (0) from vehicle crew (2).
 
 use std::path::Path;
 
@@ -53,71 +94,108 @@ pub enum MovesError {
 }
 
 /// A single waypoint command in an alert level.
+///
+/// Commands are always stored as triplets (action, tile_id, grid). Empty slots
+/// use `N 0 0` as padding — the original files always have exactly 10 command
+/// slots per level, even if most are no-ops.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MoveCommand {
     /// Action code: M(ove), I(nvestigate), C(over), E(scape), S(tand), V(ehicle), W(ait), N(one).
     pub action: char,
-    /// Target tile ID (0 = no destination / context-dependent).
+    /// Target tile ID. These are indices into the mission's tile map, not pixel
+    /// coordinates. A value of 0 means "no destination" (used with N/W actions).
     pub tile_id: u32,
-    /// Grid quadrant at the target tile (0 = no destination).
+    /// Grid quadrant within the target tile (1-4). The original engine subdivides
+    /// each isometric tile into quadrants for finer positioning. 0 = no quadrant.
     pub grid: u8,
 }
 
 /// One alert level's activation threshold and command sequence.
+///
+/// The threshold determines when this level activates. The game maintains a
+/// global alert value that increases as the player is detected, fires weapons,
+/// or triggers alarms. When the alert value crosses a level's threshold, the
+/// AI switches to that level's command sequence.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AlertLevel {
-    /// Activation threshold (0-100). 0 = disabled, 100 = always triggers.
+    /// Activation threshold (0-100). 0 = disabled (this level is never used),
+    /// 100 = always triggers immediately. Typical patrol levels use 50-75.
     pub threshold: u32,
-    /// Up to 10 waypoint commands (N/0/0 slots are included as-is).
+    /// Up to 10 waypoint commands. The AI executes these sequentially — once
+    /// all non-N commands are exhausted, the entity holds its last position.
+    /// N/0/0 slots are included as-is to preserve the original file's structure.
     pub commands: Vec<MoveCommand>,
 }
 
 /// An A or B variant behavior block for a single entity.
+///
+/// The game picks either A or B for each entity at mission start. Both variants
+/// share the same entity "slot" (e.g., Enemy 1) but can have completely
+/// different spawn positions and patrol routes, adding replay variety.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EntityBehavior {
-    /// Entity label, e.g. "Enemy 1A", "NPC 2B".
+    /// Entity label, e.g. "Enemy 1A", "NPC 2B". The trailing letter is the variant.
     pub label: String,
-    /// Variant: 'A' or 'B'.
+    /// Variant: 'A' or 'B'. Extracted from the last character of the label.
     pub variant: char,
-    /// NPC type identifier (0 = standard infantry, 2 = vehicle crew / special).
+    /// NPC type identifier. 0 = standard infantry (walks, uses cover, carries
+    /// small arms). 2 = vehicle crew or special unit (operates attached vehicle,
+    /// different AI behavior when dismounted).
     pub npc_type: u8,
-    /// Vehicle attachment (0 = independent, N = attached to vehicle N).
+    /// Vehicle attachment. 0 = independent foot soldier. N = crews Vehicle N
+    /// (the vehicle must exist in the vehicles list at the end of the file).
+    /// When attached, the entity's movement is controlled by the vehicle until
+    /// it's destroyed, at which point the crew dismounts and reverts to infantry AI.
     pub attached_to: u8,
-    /// Initial spawn tile ID.
+    /// Initial spawn tile ID — where this entity appears at mission start.
     pub setup_tile: u32,
-    /// Initial spawn grid quadrant.
+    /// Initial spawn grid quadrant within the tile (1-4).
     pub setup_grid: u8,
-    /// The 6 alert levels.
+    /// The 6 alert levels, indexed 0-5 (representing Level 1 through Level 6).
     pub alert_levels: Vec<AlertLevel>,
 }
 
 /// A vehicle spawn entry at the end of the file.
+///
+/// Vehicles are listed after all entity behavior blocks. They only define a
+/// spawn position — the vehicle's behavior is driven by its attached crew
+/// members. If all crew are killed, the vehicle becomes inert.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VehicleSpawn {
-    /// Vehicle number (1-based).
+    /// Vehicle number (1-based). Crew members reference this via `attached_to`.
     pub index: u32,
-    /// Spawn tile ID.
+    /// Spawn tile ID — where the vehicle appears on the map at mission start.
     pub tile_id: u32,
-    /// Spawn grid quadrant.
+    /// Spawn grid quadrant within the tile.
     pub grid: u8,
 }
 
 /// The complete parsed MOVES file for a mission.
+///
+/// The file structure is: header (3 count lines) -> entity blocks -> vehicle entries.
+/// Entity blocks appear in order: Enemy 1A, Enemy 1B, Enemy 2A, Enemy 2B, ...,
+/// then NPC 1A, NPC 1B, etc. The total number of behavior blocks is always
+/// `(enemy_count + npc_count) * 2` because every entity has both A and B variants.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MoveScript {
-    /// Number of enemy unit slots.
+    /// Number of enemy unit slots. Each slot produces 2 behavior blocks (A + B).
     pub enemy_count: u32,
-    /// Number of NPC unit slots.
+    /// Number of NPC unit slots. NPCs are non-hostile AI entities (civilians,
+    /// allies, mission-critical characters). Each also has A/B variants.
     pub npc_count: u32,
-    /// Number of vehicles.
+    /// Number of vehicles on this mission map.
     pub vehicle_count: u32,
-    /// All entity behavior blocks (enemies A/B, then NPCs A/B).
+    /// All entity behavior blocks (enemies A/B, then NPCs A/B). Length is
+    /// always `(enemy_count + npc_count) * 2`.
     pub behaviors: Vec<EntityBehavior>,
-    /// Vehicle spawn positions.
+    /// Vehicle spawn positions, listed at the end of the file.
     pub vehicles: Vec<VehicleSpawn>,
 }
 
 /// Valid action codes for move commands.
+/// M=Move, I=Investigate, C=Cover, E=Escape, S=Stand, V=Vehicle, W=Wait, N=None.
+/// Any other character in the data file is a parsing error — the original game
+/// only uses these 8 codes.
 const VALID_ACTIONS: &[char] = &['M', 'I', 'C', 'E', 'S', 'V', 'W', 'N'];
 
 /// Parse a `MOVESnn.DAT` file into a [`MoveScript`].
@@ -141,6 +219,8 @@ pub fn parse_moves(path: &Path) -> Result<MoveScript, MovesError> {
     };
 
     // --- Parse header ---
+    // The first 3 lines declare counts: "Enemies: N", "NPCs: N", "Vehicles: N".
+    // These determine how many entity blocks and vehicle entries to expect below.
     let enemy_count = parse_header_line(get_line(cursor)?, cursor + 1, "Enemies")?;
     cursor += 1;
     let npc_count = parse_header_line(get_line(cursor)?, cursor + 1, "NPCs")?;
@@ -160,7 +240,9 @@ pub fn parse_moves(path: &Path) -> Result<MoveScript, MovesError> {
     }
 
     // --- Parse entity blocks ---
-    let total_entities = (enemy_count + npc_count) * 2; // A + B variants
+    // Every entity slot produces 2 blocks (A and B variants), so the total
+    // number of behavior blocks is always double the entity count.
+    let total_entities = (enemy_count + npc_count) * 2;
     let mut behaviors = Vec::with_capacity(total_entities as usize);
 
     for _ in 0..total_entities {
@@ -187,6 +269,9 @@ pub fn parse_moves(path: &Path) -> Result<MoveScript, MovesError> {
     }
 
     // --- Parse vehicle entries ---
+    // Vehicle lines appear at the end of the file, after all entity blocks.
+    // Format: "Vehicle N: <tile_id> <grid>" — simple spawn positions.
+    // The vehicle's behavior comes from its attached crew, not from its own data.
     let mut vehicles = Vec::with_capacity(vehicle_count as usize);
     while cursor < lines.len() {
         let line = get_line(cursor)?.trim();
@@ -197,7 +282,9 @@ pub fn parse_moves(path: &Path) -> Result<MoveScript, MovesError> {
         }
 
         if let Some(rest) = line.strip_prefix("Vehicle ") {
-            // "Vehicle 1: 2971 3"
+            // Format: "Vehicle 1: 2971 3" — index, tile ID, grid quadrant.
+            // We use unwrap_or(0) for parse failures because some modded data
+            // files have malformed vehicle lines that the original game ignores.
             let parts: Vec<&str> = rest.splitn(2, ':').collect();
             if parts.len() == 2 {
                 let idx: u32 = parts[0].trim().parse().unwrap_or(0);
@@ -233,6 +320,9 @@ pub fn parse_moves(path: &Path) -> Result<MoveScript, MovesError> {
 }
 
 /// Parse a header line like "Enemies: 10" or "NPCs:\t1".
+///
+/// The original data files use inconsistent whitespace — sometimes tabs,
+/// sometimes spaces after the colon. We normalize by trimming after the colon.
 fn parse_header_line(line: &str, line_num: usize, field: &'static str) -> Result<u32, MovesError> {
     let line = line.trim();
     // Match field name case-insensitively at the start.
@@ -250,6 +340,13 @@ fn parse_header_line(line: &str, line_num: usize, field: &'static str) -> Result
 }
 
 /// Parse a single entity block (header + 6 levels), returning the behavior and the new cursor.
+///
+/// Each entity block is structured as:
+/// - Line 1: Entity header (e.g., "Enemy 1A:")
+/// - Line 2: "NPC Type: <n>"
+/// - Line 3: "Attached To: <n>"
+/// - Line 4: "Setup: <tile_id> <grid>"
+/// - Lines 5-10: "Level 1: ..." through "Level 6: ..." (one per alert level)
 fn parse_entity_block(
     lines: &[&str],
     start: usize,
@@ -263,7 +360,8 @@ fn parse_entity_block(
             .ok_or(MovesError::UnexpectedEof { line: idx + 1 })
     };
 
-    // Entity header line, e.g. "Enemy 1A:" or "NPC 1B:"
+    // Entity header line, e.g. "Enemy 1A:" or "NPC 1B:".
+    // The variant letter (A or B) is always the last character before the colon.
     let header_line = get(cursor)?.trim();
     let label = header_line.trim_end_matches(':').trim().to_string();
     let variant = label.chars().last().unwrap_or('A');
@@ -309,7 +407,9 @@ fn parse_entity_block(
     );
     cursor += 1;
 
-    // Parse 6 alert levels.
+    // Parse all 6 alert levels. Every entity always has exactly 6 levels in the
+    // file, even if most are disabled (threshold=0, all N/0/0 commands). This
+    // fixed structure makes parsing predictable.
     let mut alert_levels = Vec::with_capacity(6);
     for level_num in 1..=6u8 {
         let level_line = get(cursor)?.trim_end_matches('\r');
@@ -353,12 +453,17 @@ fn extract_trailing_int(line: &str, line_num: usize, field: &'static str) -> Res
 }
 
 /// Parse a level line like "Level 1: 75\tM 2417 3 M 3545 3 ... N 0 0".
+///
+/// Format: `Level <N>: <threshold>\t<action> <tile> <grid> <action> <tile> <grid> ...`
+/// The tab after the threshold is how the original game separates the threshold
+/// from the command sequence. There are always 10 command triplets per level.
 fn parse_level_line(
     line: &str,
     line_num: usize,
     expected_level: u8,
 ) -> Result<AlertLevel, MovesError> {
-    // Split off "Level N:" prefix.
+    // Split off "Level N:" prefix. We rejoin with ":" in case the line
+    // contains colons elsewhere (unlikely but defensive).
     let after_colon = line
         .split(':')
         .skip(1)
@@ -380,7 +485,9 @@ fn parse_level_line(
         detail: format!("'{}' is not a valid threshold", tokens[0]),
     })?;
 
-    // Remaining tokens are triplets: Action TileID Grid.
+    // Remaining tokens are triplets: Action TileID Grid. We consume them
+    // 3 at a time. If there's a partial triplet at the end, we stop — this
+    // handles files that were truncated or hand-edited.
     let mut commands = Vec::new();
     let mut i = 1;
     while i + 2 <= tokens.len() {
