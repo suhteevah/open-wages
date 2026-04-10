@@ -406,14 +406,26 @@ pub fn run_game_loop(
                         Ok(tileset) => {
                             info!(sprites = tileset.file_header.sprite_count, "Tileset loaded");
 
-                            // Load palette from a PCX file.
+                            // Load the palette from a PCX in PIC/.
+                            // TODO: The game uses a master VGA palette that differs from
+                            // individual PCX palettes. For now we use OFFPIC2.PCX which
+                            // has the closest match to the terrain colors.
                             let pic_dir = data_dir.join("WOW").join("PIC");
-                            if let Ok(entries) = std::fs::read_dir(&pic_dir) {
-                                for entry in entries.flatten() {
-                                    if entry.path().extension().map(|e| e.to_ascii_uppercase())
-                                        == Some("PCX".into())
-                                    {
-                                        match ow_render::palette::load_pcx_palette(&entry.path()) {
+                            let pal_pcx = {
+                                // Try OFFPIC2 first (office scene, closest to game palette)
+                                let offpic = pic_dir.join("OFFPIC2.PCX");
+                                if offpic.exists() {
+                                    Some(offpic)
+                                } else {
+                                    std::fs::read_dir(&pic_dir).ok().and_then(|entries| {
+                                        entries.flatten().find(|e| {
+                                            e.path().extension().map(|x| x.to_ascii_uppercase()) == Some("PCX".into())
+                                        }).map(|e| e.path())
+                                    })
+                                }
+                            };
+                            if let Some(pcx_path) = pal_pcx {
+                                        match ow_render::palette::load_pcx_palette(&pcx_path) {
                                             Ok(pal) => {
                                                 // Create tile renderer and load textures.
                                                 let mut tr = ow_render::tile_renderer::TileMapRenderer::new(&texture_creator);
@@ -452,12 +464,9 @@ pub fn run_game_loop(
                                                     game.camera.y = mid_y - (game.window_height as f32 / 2.0);
                                                     tile_renderer = Some(tr);
                                                 }
-                                                break;
                                             }
                                             Err(e) => warn!("Palette error: {e}"),
                                         }
-                                    }
-                                }
                             }
                             loaded_map = Some(map);
                         }
