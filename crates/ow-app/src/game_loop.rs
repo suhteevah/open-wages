@@ -311,6 +311,10 @@ pub fn run_game_loop(
     let mut loaded_map: Option<ow_data::map_loader::GameMap> = None;
     let mut mission_iso_config: Option<IsoConfig> = None;
 
+    // Enemy units generated from mission data. Stored here so they persist
+    // across the deployment and combat phases.
+    let mut enemy_units: Vec<ow_core::mission_setup::EnemyUnit> = Vec::new();
+
     let mut last_frame = Instant::now();
     let mut running = true;
     let mut _screenshot_count = 0u32;
@@ -468,6 +472,41 @@ pub fn run_game_loop(
                                             Err(e) => warn!("Palette error: {e}"),
                                         }
                             }
+                            // Generate enemy units from mission data.
+                            let mission_key = format!("MSSN{mission_num:02}");
+                            if let Some(mission_data) = ruleset.missions.get(&mission_key) {
+                                let mut rng = rand::thread_rng();
+                                // Generate enemies with random positions on the map.
+                                let max_player_id = game.game_state.team.iter()
+                                    .map(|m| m.id).max().unwrap_or(0);
+                                let mut next_id = max_player_id + 1000;
+
+                                for (i, rating) in mission_data.enemy_ratings.iter().enumerate() {
+                                    use rand::Rng;
+                                    // Roll for presence
+                                    let roll: u8 = rng.gen_range(0..100);
+                                    if roll >= rating.presence_chance {
+                                        continue;
+                                    }
+                                    // Generate enemy with a random position in the upper portion of the map.
+                                    let ex: i32 = rng.gen_range(20..180);
+                                    let ey: i32 = rng.gen_range(10..100);
+                                    let default_weapon = ow_data::mission::EnemyWeapon {
+                                        weapon1: -1, weapon2: -1, ammo1: 0, ammo2: 0,
+                                        weapon3: -1, extra: 0,
+                                    };
+                                    let weapon = mission_data.enemy_weapons.get(i)
+                                        .unwrap_or(&default_weapon);
+                                    let mut enemy = ow_core::mission_setup::EnemyUnit::from_rating(
+                                        next_id, rating, weapon,
+                                    );
+                                    enemy.position = Some(ow_core::merc::TilePos { x: ex, y: ey });
+                                    next_id += 1;
+                                    enemy_units.push(enemy);
+                                }
+                                info!(enemies = enemy_units.len(), "Enemies generated for mission");
+                            }
+
                             loaded_map = Some(map);
                         }
                         Err(e) => warn!("Failed to load tileset {til_name}: {e}"),
@@ -489,7 +528,7 @@ pub fn run_game_loop(
         canvas.clear();
 
         render_phase(&game, &mut canvas, &text_renderer, &texture_creator, &ruleset, &office_texture,
-                     &tile_renderer, &loaded_map, &mission_iso_config);
+                     &tile_renderer, &loaded_map, &mission_iso_config, &enemy_units);
 
         // Title bar shows the current phase (placeholder for real UI)
         let label = phase_label(&game.phase_handler);
@@ -1427,15 +1466,16 @@ fn render_phase(
     tile_renderer: &Option<ow_render::tile_renderer::TileMapRenderer>,
     loaded_map: &Option<ow_data::map_loader::GameMap>,
     mission_iso: &Option<IsoConfig>,
+    enemy_units: &[ow_core::mission_setup::EnemyUnit],
 ) {
     match &game.phase_handler {
         PhaseHandler::Office { sub_phase } => render_office(game, canvas, *sub_phase, text, tc, ruleset, office_bg),
         PhaseHandler::Travel { elapsed_ms } => render_travel(canvas, *elapsed_ms, text, tc),
         PhaseHandler::Deployment { selected_unit } => {
-            render_mission_map(game, canvas, tile_renderer, loaded_map, mission_iso, text, tc);
+            render_mission_map(game, canvas, tile_renderer, loaded_map, mission_iso, text, tc, &enemy_units);
         }
         PhaseHandler::Combat(combat) => {
-            render_mission_map(game, canvas, tile_renderer, loaded_map, mission_iso, text, tc);
+            render_mission_map(game, canvas, tile_renderer, loaded_map, mission_iso, text, tc, &enemy_units);
         }
         PhaseHandler::Extraction => render_extraction(game, canvas),
         PhaseHandler::Debrief { success } => render_debrief(canvas, *success, text, tc),
@@ -1714,6 +1754,7 @@ fn render_mission_map(
     mission_iso: &Option<IsoConfig>,
     _text: &TextRenderer,
     _tc: &TextureCreator<WindowContext>,
+    enemies: &[ow_core::mission_setup::EnemyUnit],
 ) {
     // If we have real tile data, render the actual map. Otherwise fall back
     // to the wireframe placeholder grid.
@@ -1756,6 +1797,26 @@ fn render_mission_map(
             canvas.set_draw_color(Color::RGB(0, 0, 0));
             canvas.draw_rect(Rect::new(
                 screen.x as i32 - 6, screen.y as i32 - 6, 12, 12,
+            )).ok();
+        }
+    }
+
+    // Draw enemy units as red squares.
+    for enemy in enemies {
+        if enemy.current_hp == 0 { continue; }
+        if let Some(pos) = enemy.position {
+            let iso_tile = TilePos { x: pos.x, y: pos.y };
+            let world = iso.tile_to_screen(iso_tile);
+            let screen = game.camera.world_to_screen(world);
+
+            // Red for enemies
+            canvas.set_draw_color(Color::RGB(220, 30, 30));
+            canvas.fill_rect(Rect::new(
+                screen.x as i32 - 5, screen.y as i32 - 5, 10, 10,
+            )).ok();
+            canvas.set_draw_color(Color::RGB(0, 0, 0));
+            canvas.draw_rect(Rect::new(
+                screen.x as i32 - 5, screen.y as i32 - 5, 10, 10,
             )).ok();
         }
     }

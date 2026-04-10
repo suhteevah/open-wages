@@ -352,6 +352,7 @@ dependencies = [
  "ow-core",
  "ow-data",
  "ow-render",
+ "rand",
  "sdl2",
  "serde_json",
  "tracing",
