@@ -299,7 +299,7 @@ pub fn run_game_loop(
 
     let mut last_frame = Instant::now();
     let mut running = true;
-    let mut screenshot_taken = false;
+    let mut _screenshot_count = 0u32;
 
     // -----------------------------------------------------------------------
     // Main loop: poll events -> update -> render -> present -> sleep
@@ -325,6 +325,13 @@ pub fn run_game_loop(
                     ..
                 } => {
                     running = handle_escape(&mut game);
+                }
+
+                // F12 saves a screenshot to disk.
+                Event::KeyDown {
+                    keycode: Some(Keycode::F12), ..
+                } => {
+                    save_screenshot(&canvas);
                 }
 
                 // Delegate all other input to the current phase handler
@@ -356,28 +363,6 @@ pub fn run_game_loop(
             .ok();
 
         canvas.present();
-
-        // Auto-save a debug screenshot on the 3rd frame (after rendering stabilizes).
-        // F12 also saves a screenshot at any time.
-        if !screenshot_taken {
-            screenshot_taken = true;
-            // Read pixels back from the canvas and save as BMP.
-            let (sw, sh) = canvas.output_size().unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
-            let pixel_format = canvas.default_pixel_format();
-            if let Ok(pixels) = canvas.read_pixels(None, pixel_format) {
-                if let Ok(surface) = sdl2::surface::Surface::from_data(
-                    &mut pixels.clone(),
-                    sw, sh,
-                    sw * 4,
-                    sdl2::pixels::PixelFormatEnum::ARGB8888,
-                ) {
-                    let path = std::path::Path::new("debug_screenshot.bmp");
-                    if surface.save_bmp(path).is_ok() {
-                        info!("Debug screenshot saved to debug_screenshot.bmp");
-                    }
-                }
-            }
-        }
 
         // -- Frame pacing --
         // Sleep for remaining frame budget to hit ~60 fps.
@@ -1636,5 +1621,55 @@ mod tests {
         let colors: Vec<Color> = handlers.iter().map(phase_background_color).collect();
         // Success and failure debrief must have different colors
         assert_ne!(colors[3], colors[4]);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Screenshot — F12 saves the current frame to disk as BMP
+// ---------------------------------------------------------------------------
+
+/// Save the current canvas contents to a BMP file.
+/// Files are named screenshot_001.bmp, screenshot_002.bmp, etc.
+fn save_screenshot(canvas: &Canvas<Window>) {
+    // Find the next available screenshot number.
+    let mut num = 1u32;
+    loop {
+        let path = format!("screenshot_{num:03}.bmp");
+        if !std::path::Path::new(&path).exists() {
+            // Read pixels from the canvas in its native format.
+            let (w, h) = canvas.output_size().unwrap_or((1280, 720));
+            match canvas.read_pixels(None, sdl2::pixels::PixelFormatEnum::RGB24) {
+                Ok(pixels) => {
+                    // RGB24 = 3 bytes per pixel, no alpha confusion.
+                    match sdl2::surface::Surface::from_data_pixelmasks(
+                        &mut pixels.clone(),
+                        w, h,
+                        w * 3,
+                        &sdl2::pixels::PixelMasks {
+                            bpp: 24,
+                            rmask: 0xFF0000,
+                            gmask: 0x00FF00,
+                            bmask: 0x0000FF,
+                            amask: 0,
+                        },
+                    ) {
+                        Ok(surface) => {
+                            match surface.save_bmp(&path) {
+                                Ok(()) => info!("Screenshot saved: {path}"),
+                                Err(e) => warn!("Failed to save screenshot: {e}"),
+                            }
+                        }
+                        Err(e) => warn!("Failed to create screenshot surface: {e}"),
+                    }
+                }
+                Err(e) => warn!("Failed to read pixels for screenshot: {e}"),
+            }
+            break;
+        }
+        num += 1;
+        if num > 999 {
+            warn!("Too many screenshots (>999)");
+            break;
+        }
     }
 }
