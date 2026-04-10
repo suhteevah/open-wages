@@ -141,6 +141,9 @@ pub struct GameLoop {
     pub iso_config: IsoConfig,
     /// Phase-specific handler with per-phase mutable state.
     pub phase_handler: PhaseHandler,
+    /// Current window dimensions (updated on resize).
+    pub window_width: u32,
+    pub window_height: u32,
 }
 
 impl GameLoop {
@@ -158,6 +161,8 @@ impl GameLoop {
                 origin_y: 64.0,
             },
             phase_handler,
+            window_width: WINDOW_WIDTH,
+            window_height: WINDOW_HEIGHT,
         }
     }
 }
@@ -327,6 +332,13 @@ pub fn run_game_loop(
                     running = handle_escape(&mut game);
                 }
 
+                // Track window resizes so click coordinates scale correctly.
+                Event::Window { win_event: sdl2::event::WindowEvent::Resized(w, h), .. } => {
+                    game.window_width = w as u32;
+                    game.window_height = h as u32;
+                    debug!(width = w, height = h, "Window resized");
+                }
+
                 // F12 saves a screenshot to disk.
                 Event::KeyDown {
                     keycode: Some(Keycode::F12), ..
@@ -491,41 +503,120 @@ fn handle_pause_input(game: &mut GameLoop, event: &Event) {
 /// 'B' begins a mission (transitions to Travel) if preconditions are met:
 ///   - At least one merc hired
 ///   - A contract accepted (placeholder: always allowed for now)
+/// Map a mouse click on the office scene to a game action.
+///
+/// The original office screen is 640x480. We scale mouse coordinates from
+/// the actual window size down to 640x480 space, then check which clickable
+/// object the player hit. Each object on the desk maps to a game function:
+///
+/// - Filing cabinet (left side)  → View Files
+/// - Fax machine (lower left)    → Contracts (Use Fax)
+/// - Calculator (center desk)    → Calculator
+/// - Pizza box (center-low desk) → Eat Pizza (easter egg)
+/// - Phone (right side)          → Hire Mercs / Arm Mercs
+/// - World map (wall, right)     → World Map / Intel
+/// - Door (far right)            → Begin Mission
+/// - Magazines (desk, left)      → Equipment catalog
 fn handle_office_input(game: &mut GameLoop, event: &Event) {
-    if let Event::KeyDown {
-        keycode: Some(key), ..
-    } = event
-    {
-        let new_sub = match *key {
-            Keycode::Num1 => Some(OfficePhase::Overview),
-            Keycode::Num2 => Some(OfficePhase::HireMercs),
-            Keycode::Num3 => Some(OfficePhase::Equipment),
-            Keycode::Num4 => Some(OfficePhase::Intel),
-            Keycode::Num5 => Some(OfficePhase::Contracts),
-            Keycode::Num6 => Some(OfficePhase::Training),
-            _ => None,
-        };
+    // Helper: check if a point is inside a rect defined in 640x480 space.
+    // We scale the mouse coordinates from window size to 640x480.
+    let check_hit = |mx: i32, my: i32, x1: i32, y1: i32, x2: i32, y2: i32, ww: u32, wh: u32| -> bool {
+        // Scale mouse coords to original 640x480 resolution.
+        let sx = (mx as f32 * 640.0 / ww as f32) as i32;
+        let sy = (my as f32 * 480.0 / wh as f32) as i32;
+        sx >= x1 && sx <= x2 && sy >= y1 && sy <= y2
+    };
 
-        if let Some(sub) = new_sub {
-            debug!(sub_phase = ?sub, "Office sub-phase switch");
-            game.game_state.set_phase(GamePhase::Office(sub));
-            game.phase_handler = PhaseHandler::Office { sub_phase: sub };
-            return;
-        }
+    match event {
+        // Mouse click on the office scene — check which object was clicked.
+        Event::MouseButtonDown {
+            mouse_btn: MouseButton::Left,
+            x, y, ..
+        } => {
+            let (ww, wh) = (game.window_width, game.window_height);
 
-        // Begin mission
-        if *key == Keycode::B {
-            if game.game_state.team.is_empty() {
-                warn!("Cannot begin mission: no mercs hired");
+            // Check each clickable hotspot (from MAIN.BTN, 640x480 coords).
+            // The action depends on which object the player clicked on.
+            let action = if check_hit(*x, *y, 400, 340, 480, 410, ww, wh) {
+                // Phone area → Hire Mercenaries
+                Some(("Hire Mercenaries", OfficePhase::HireMercs))
+            } else if check_hit(*x, *y, 11, 331, 130, 468, ww, wh) {
+                // Filing cabinet (left side) → View Files / Equipment
+                Some(("Equipment Catalog", OfficePhase::Equipment))
+            } else if check_hit(*x, *y, 122, 384, 230, 420, ww, wh) {
+                // Fax machine → Contracts
+                Some(("Contracts (Fax)", OfficePhase::Contracts))
+            } else if check_hit(*x, *y, 485, 331, 628, 438, ww, wh) {
+                // World map on wall → Intel / World Map
+                Some(("Mission Intel", OfficePhase::Intel))
+            } else if check_hit(*x, *y, 122, 440, 230, 470, ww, wh) {
+                // Lower filing cabinet / training area
+                Some(("Training", OfficePhase::Training))
+            } else if check_hit(*x, *y, 429, 424, 475, 446, ww, wh) {
+                // Door → Begin Mission
+                if game.game_state.team.is_empty() {
+                    warn!("Cannot begin mission: no mercs hired");
+                    None
+                } else {
+                    info!(team_size = game.game_state.team.len(), "Beginning mission");
+                    game.game_state.set_phase(GamePhase::Travel);
+                    game.phase_handler = PhaseHandler::Travel { elapsed_ms: 0 };
+                    None // Already transitioned, don't set office sub-phase.
+                }
             } else {
-                info!(
-                    team_size = game.game_state.team.len(),
-                    "Beginning mission -- transitioning to Travel"
-                );
-                game.game_state.set_phase(GamePhase::Travel);
-                game.phase_handler = PhaseHandler::Travel { elapsed_ms: 0 };
+                None
+            };
+
+            if let Some((label, sub)) = action {
+                info!(action = label, "Office click");
+                game.game_state.set_phase(GamePhase::Office(sub));
+                game.phase_handler = PhaseHandler::Office { sub_phase: sub };
             }
         }
+
+        // Keyboard shortcuts still work as fallback.
+        Event::KeyDown { keycode: Some(key), .. } => {
+            let new_sub = match *key {
+                // ESC returns to the overview (office desk scene).
+                Keycode::Escape => {
+                    // Only go to overview if we're in a sub-screen, not if we're
+                    // already at overview (which would trigger the pause handler).
+                    if let PhaseHandler::Office { sub_phase } = &game.phase_handler {
+                        if *sub_phase != OfficePhase::Overview {
+                            Some(OfficePhase::Overview)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                Keycode::Num1 => Some(OfficePhase::HireMercs),
+                Keycode::Num2 => Some(OfficePhase::Equipment),
+                Keycode::Num3 => Some(OfficePhase::Intel),
+                Keycode::Num4 => Some(OfficePhase::Contracts),
+                Keycode::Num5 => Some(OfficePhase::Training),
+                Keycode::B => {
+                    if game.game_state.team.is_empty() {
+                        warn!("Cannot begin mission: no mercs hired");
+                        None
+                    } else {
+                        info!(team_size = game.game_state.team.len(), "Beginning mission");
+                        game.game_state.set_phase(GamePhase::Travel);
+                        game.phase_handler = PhaseHandler::Travel { elapsed_ms: 0 };
+                        None
+                    }
+                }
+                _ => None,
+            };
+
+            if let Some(sub) = new_sub {
+                debug!(sub_phase = ?sub, "Office sub-phase switch");
+                game.game_state.set_phase(GamePhase::Office(sub));
+                game.phase_handler = PhaseHandler::Office { sub_phase: sub };
+            }
+        }
+        _ => {}
     }
 }
 
