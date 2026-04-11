@@ -11,13 +11,30 @@
 //!
 //! ## Tile grid encoding
 //!
-//! Each cell is 4 bytes interpreted as two little-endian `u16` values:
-//! - **Bytes 0-1 (`cell_flags`):** Object/placement data. `0xFF00` = unused border cell.
-//! - **Bytes 2-3 (`tile_index`):** Tile sprite index into the `.TIL` tileset.
-//!   Bit 15 may be a flag; the lower 15 bits are the actual tile ID.
+//! Each cell is 4 bytes interpreted as a single little-endian `u32`.
+//! The 32-bit word packs **three 9-bit tile layer indices** plus **5 flag bits**:
+//!
+//! ```text
+//! [31..23] tile_layer_0 (9 bits — primary terrain sprite index, 0-511)
+//! [22..14] tile_layer_1 (9 bits — secondary terrain overlay, 0-511)
+//! [13..5]  tile_layer_2 (9 bits — tertiary terrain detail, 0-511)
+//! [4]      flag_A (wall/obstacle)
+//! [3]      flag_B (explored)
+//! [2]      flag_C (roof)
+//! [1]      flag_D (walkable)
+//! [0]      padding
+//! ```
+//!
+//! This layout was confirmed by RE analysis of the `PackCellWord1` function
+//! at `0x41AF7B` in `Wow.exe`, which uses three successive 9-bit SHL-OR
+//! operations followed by five 1-bit flag insertions.
+//!
+//! Border cells are identified by the raw u32 value having the high byte
+//! of the first on-disk u16 equal to `0xFF` (legacy detection preserved
+//! for compatibility — equivalent to checking `(raw_bytes[1] == 0xFF)`).
 //!
 //! The grid is 200 columns x 252 rows. Rows 0..201 contain active map data;
-//! rows 202..251 are border padding filled with `0xFF` in byte 0.
+//! rows 202..251 are border padding filled with `0xFF` in byte 1.
 //!
 //! ## String table
 //!
@@ -102,15 +119,20 @@ pub struct MapHeader {
 }
 
 /// A single tile cell from the grid.
+///
+/// Each cell is a packed 32-bit word containing three 9-bit tile layer
+/// indices and 5 flag bits. See module docs for the bit layout.
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct MapTile {
-    /// Tile sprite index into the `.TIL` tileset (lower 15 bits of bytes 2-3).
-    pub tile_index: u16,
-    /// High bit of the tile index word — likely a flip or variant flag.
-    pub tile_flag: bool,
-    /// Raw object/placement data from bytes 0-1.
-    pub cell_flags: u16,
-    /// Whether this cell is a border/unused cell (byte 0 == 0xFF).
+    /// Primary terrain tile index (bits 31..23, 9 bits, 0-511).
+    pub layer0: u16,
+    /// Secondary terrain overlay index (bits 22..14, 9 bits, 0-511).
+    pub layer1: u16,
+    /// Tertiary terrain detail index (bits 13..5, 9 bits, 0-511).
+    pub layer2: u16,
+    /// Five-bit flag field (bits 4..0).
+    pub flags: u8,
+    /// Whether this cell is a border/unused cell (byte 1 of the on-disk cell == 0xFF).
     pub is_border: bool,
 }
 
@@ -229,6 +251,9 @@ pub fn parse_map_bytes(data: &[u8], path: &Path) -> Result<GameMap, MapError> {
 }
 
 /// Parse the tile grid region into a vec of `MapTile`.
+///
+/// Each cell is read as a single little-endian `u32` and unpacked into
+/// three 9-bit tile layer indices plus a 5-bit flag field.
 fn parse_tile_grid(data: &[u8]) -> Vec<MapTile> {
     let cell_count = GRID_WIDTH * GRID_HEIGHT;
     let mut tiles = Vec::with_capacity(cell_count);
@@ -237,26 +262,35 @@ fn parse_tile_grid(data: &[u8]) -> Vec<MapTile> {
         let offset = i * CELL_SIZE;
         let mut cursor = Cursor::new(&data[offset..offset + CELL_SIZE]);
 
-        let cell_flags = cursor.read_u16::<LittleEndian>().unwrap();
-        let tile_word = cursor.read_u16::<LittleEndian>().unwrap();
+        let raw = cursor.read_u32::<LittleEndian>().unwrap();
 
-        let tile_index = tile_word & 0x7FFF;
-        let tile_flag = (tile_word & 0x8000) != 0;
-        let is_border = (cell_flags >> 8) as u8 == BORDER_MARKER;
+        // Unpack three 9-bit layer indices and 5 flag bits:
+        //   [31..23] layer0, [22..14] layer1, [13..5] layer2, [4..0] flags
+        let layer0 = ((raw >> 23) & 0x1FF) as u16;
+        let layer1 = ((raw >> 14) & 0x1FF) as u16;
+        let layer2 = ((raw >> 5) & 0x1FF) as u16;
+        let flags = (raw & 0x1F) as u8;
+
+        // Border detection: byte 1 of the on-disk 4-byte cell == 0xFF.
+        // In the LE u32, byte 1 is bits [15..8].
+        let is_border = ((raw >> 8) & 0xFF) as u8 == BORDER_MARKER;
 
         tiles.push(MapTile {
-            tile_index,
-            tile_flag,
-            cell_flags,
+            layer0,
+            layer1,
+            layer2,
+            flags,
             is_border,
         });
 
         if i < 4 {
             trace!(
                 cell = i,
-                cell_flags = format_args!("0x{cell_flags:04X}"),
-                tile_index,
-                tile_flag,
+                raw = format_args!("0x{raw:08X}"),
+                layer0,
+                layer1,
+                layer2,
+                flags = format_args!("0x{flags:02X}"),
                 is_border,
                 "tile cell"
             );
@@ -307,20 +341,18 @@ mod tests {
     fn make_test_map() -> Vec<u8> {
         let mut data = vec![0u8; MAP_FILE_SIZE];
 
-        // Write a known tile at (0, 0): cell_flags=0x0001, tile_index=7, tile_flag=true
-        // cell_flags LE: 0x01, 0x00
-        // tile_word LE: tile_index=7 | 0x8000 = 0x8007 => 0x07, 0x80
-        data[0] = 0x01;
-        data[1] = 0x00;
-        data[2] = 0x07;
-        data[3] = 0x80;
+        // Write a known tile at (0, 0):
+        //   layer0=7, layer1=3, layer2=1, flags=0x0A
+        //   Packed: (7 << 23) | (3 << 14) | (1 << 5) | 0x0A
+        //         = 0x0380_C02A
+        let cell0: u32 = (7 << 23) | (3 << 14) | (1 << 5) | 0x0A;
+        data[0..4].copy_from_slice(&cell0.to_le_bytes());
 
         // Write a border cell at row 202, col 0
+        // Border is detected by byte 1 == 0xFF, i.e. bits [15..8] of the u32.
         let border_offset = (202 * GRID_WIDTH) * CELL_SIZE;
-        data[border_offset] = 0x00;
-        data[border_offset + 1] = 0xFF; // high byte of cell_flags = 0xFF
-        data[border_offset + 2] = 0x00;
-        data[border_offset + 3] = 0x00;
+        let border_cell: u32 = 0x0000_FF00; // byte 1 = 0xFF
+        data[border_offset..border_offset + 4].copy_from_slice(&border_cell.to_le_bytes());
 
         // Write string table entries
         let tileset = b"C:\\WOW\\SPR\\SCEN1\\TILSCN01.TIL";
@@ -342,9 +374,10 @@ mod tests {
         let map = parse_map_bytes(&data, Path::new("test.MAP")).unwrap();
 
         let tile = map.get_tile(0, 0).unwrap();
-        assert_eq!(tile.tile_index, 7);
-        assert!(tile.tile_flag);
-        assert_eq!(tile.cell_flags, 0x0001);
+        assert_eq!(tile.layer0, 7);
+        assert_eq!(tile.layer1, 3);
+        assert_eq!(tile.layer2, 1);
+        assert_eq!(tile.flags, 0x0A);
         assert!(!tile.is_border);
     }
 

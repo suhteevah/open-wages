@@ -1976,7 +1976,7 @@ fn render_mission_map(
             for tx in 0..map.width() {
                 if let Some(tile) = map.get_tile(tx, ty) {
                     if tile.is_border { continue; }
-                    let sid = (tile.tile_index & 0x1FF) as u32;
+                    let sid = tile.layer0 as u32;
                     let color = if sid == 0 {
                         Color::RGB(25, 45, 20)
                     } else if sid < 50 {
