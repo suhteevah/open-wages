@@ -96,8 +96,18 @@ pub fn run_viewer(
     let mut needs_redraw = true;
 
     // Pre-create texture for the first sprite.
-    create_sprite_texture(&mut renderer, current_index as u32, &sheet.frames[current_index], &palette);
-    update_window_title(&mut canvas, current_index, &sheet.frames[current_index], total);
+    create_sprite_texture(
+        &mut renderer,
+        current_index as u32,
+        &sheet.frames[current_index],
+        &palette,
+    );
+    update_window_title(
+        &mut canvas,
+        current_index,
+        &sheet.frames[current_index],
+        total,
+    );
 
     // -----------------------------------------------------------------------
     // Main loop
@@ -148,7 +158,12 @@ pub fn run_viewer(
                 );
             }
 
-            update_window_title(&mut canvas, current_index, &sheet.frames[current_index], total);
+            update_window_title(
+                &mut canvas,
+                current_index,
+                &sheet.frames[current_index],
+                total,
+            );
 
             // Clear to dark background.
             canvas.set_draw_color(BG_COLOR);

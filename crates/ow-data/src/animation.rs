@@ -100,10 +100,7 @@ pub fn parse_animation(path: &Path) -> Result<AnimationSet, AnimationError> {
     let raw = std::fs::read_to_string(path)?;
 
     // Normalise line endings and collect non-empty lines.
-    let lines: Vec<&str> = raw
-        .lines()
-        .map(|l| l.trim_end_matches('\r'))
-        .collect();
+    let lines: Vec<&str> = raw.lines().map(|l| l.trim_end_matches('\r')).collect();
 
     if lines.len() < 5 {
         return Err(AnimationError::TruncatedHeader);
@@ -113,24 +110,26 @@ pub fn parse_animation(path: &Path) -> Result<AnimationSet, AnimationError> {
     let dat_filename = lines[0].trim().to_string();
     let add_filename = lines[1].trim().to_string();
 
-    let header_value: u32 = lines[2]
-        .trim()
-        .parse()
-        .map_err(|_| AnimationError::InvalidHeaderValue {
-            line: 3,
-            text: lines[2].to_string(),
-        })?;
+    let header_value: u32 =
+        lines[2]
+            .trim()
+            .parse()
+            .map_err(|_| AnimationError::InvalidHeaderValue {
+                line: 3,
+                text: lines[2].to_string(),
+            })?;
 
     // Line 4 is the field legend — skip it.
     trace!(legend = lines[3], "Skipping field legend line");
 
-    let total_animations: usize = lines[4]
-        .trim()
-        .parse()
-        .map_err(|_| AnimationError::InvalidTotalCount {
-            line: 5,
-            text: lines[4].to_string(),
-        })?;
+    let total_animations: usize =
+        lines[4]
+            .trim()
+            .parse()
+            .map_err(|_| AnimationError::InvalidTotalCount {
+                line: 5,
+                text: lines[4].to_string(),
+            })?;
 
     debug!(
         dat = %dat_filename,
@@ -351,7 +350,13 @@ TEST.add\n\
 
         let path = write_temp_cor(content);
         let err = parse_animation(&path).unwrap_err();
-        assert!(matches!(err, AnimationError::CountMismatch { expected: 2, actual: 1 }));
+        assert!(matches!(
+            err,
+            AnimationError::CountMismatch {
+                expected: 2,
+                actual: 1
+            }
+        ));
     }
 
     #[test]

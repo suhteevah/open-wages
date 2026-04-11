@@ -29,9 +29,7 @@ pub fn detect_repeating_struct(data: &[u8], max_stride: usize) -> Option<StructP
         }
 
         // Collect null-byte positions in the first record
-        let null_positions: Vec<usize> = (0..stride)
-            .filter(|&i| data[i] == 0)
-            .collect();
+        let null_positions: Vec<usize> = (0..stride).filter(|&i| data[i] == 0).collect();
 
         if null_positions.is_empty() {
             continue;

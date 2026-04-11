@@ -235,9 +235,9 @@ pub fn execute_action<R: rand::Rng>(
 
     match action {
         Action::Move(target) => execute_move(state, unit_id, unit_pos, unit_ap, target),
-        Action::Shoot(target_id) => {
-            execute_shoot(state, unit_id, unit_pos, unit_ap, unit_wsk, target_id, hit_table, rng)
-        }
+        Action::Shoot(target_id) => execute_shoot(
+            state, unit_id, unit_pos, unit_ap, unit_wsk, target_id, hit_table, rng,
+        ),
         Action::Reload => execute_reload(state, unit_id, unit_ap),
         Action::UseItem(ref item_name) => {
             execute_use_item(state, unit_id, unit_ap, item_name.clone())
@@ -261,8 +261,8 @@ fn execute_move(
     target: TilePos,
 ) -> Result<ActionResult, ActionError> {
     // Find path using the pathfinding module
-    let (path, ap_cost) = find_path(&state.map, from, target, current_ap)
-        .ok_or(ActionError::NoPath(target))?;
+    let (path, ap_cost) =
+        find_path(&state.map, from, target, current_ap).ok_or(ActionError::NoPath(target))?;
 
     if ap_cost > current_ap {
         return Err(ActionError::NotEnoughAp {
@@ -301,7 +301,10 @@ fn execute_move(
     Ok(ActionResult {
         success: true,
         ap_cost,
-        effects: vec![ActionEffect::Moved { from, to: final_pos }],
+        effects: vec![ActionEffect::Moved {
+            from,
+            to: final_pos,
+        }],
     })
 }
 
@@ -739,11 +742,7 @@ pub fn available_actions(state: &MissionState, unit_id: MercId) -> Vec<Action> {
         }
     }
 
-    trace!(
-        unit_id,
-        count = actions.len(),
-        "Computed available actions"
-    );
+    trace!(unit_id, count = actions.len(), "Computed available actions");
 
     actions
 }
@@ -755,11 +754,11 @@ pub fn available_actions(state: &MissionState, unit_id: MercId) -> Vec<Action> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game_state::MissionPhase;
     use crate::merc::{ActiveMerc, MercStatus, TilePos};
-    use crate::mission_setup::{EnemyUnit, MissionState, MissionObjective};
+    use crate::mission_setup::{EnemyUnit, MissionObjective, MissionState};
     use crate::pathfinding::{TileInfo, TileMap};
     use crate::weather::Weather;
-    use crate::game_state::MissionPhase;
     use ow_data::target::HitTable;
     use rand::rngs::mock::StepRng;
 
@@ -889,13 +888,7 @@ mod tests {
         // StepRng(0, 0) -> roll = 0, which is always < any hit chance at range 1
         let mut rng = StepRng::new(0, 0);
 
-        let result = execute_action(
-            &mut state,
-            1,
-            Action::Shoot(1001),
-            &hit_table,
-            &mut rng,
-        );
+        let result = execute_action(&mut state, 1, Action::Shoot(1001), &hit_table, &mut rng);
 
         assert!(result.is_ok());
         let result = result.unwrap();
@@ -925,13 +918,7 @@ mod tests {
         // StepRng that produces a high value
         let mut rng = StepRng::new(99, 0); // gen_range(0..100) with seed 99
 
-        let result = execute_action(
-            &mut state,
-            1,
-            Action::Shoot(1001),
-            &hit_table,
-            &mut rng,
-        );
+        let result = execute_action(&mut state, 1, Action::Shoot(1001), &hit_table, &mut rng);
 
         // The action itself succeeds (it was executed), but the shot misses
         assert!(result.is_ok());
@@ -955,13 +942,7 @@ mod tests {
         let hit_table = test_hit_table();
         let mut rng = StepRng::new(0, 1);
 
-        let result = execute_action(
-            &mut state,
-            1,
-            Action::Shoot(1001),
-            &hit_table,
-            &mut rng,
-        );
+        let result = execute_action(&mut state, 1, Action::Shoot(1001), &hit_table, &mut rng);
 
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ActionError::NoLineOfSight(_)));
@@ -988,13 +969,7 @@ mod tests {
         let hit_table = test_hit_table();
         let mut rng = StepRng::new(0, 1);
 
-        let result = execute_action(
-            &mut state,
-            1,
-            Action::Shoot(1001),
-            &hit_table,
-            &mut rng,
-        );
+        let result = execute_action(&mut state, 1, Action::Shoot(1001), &hit_table, &mut rng);
 
         assert!(result.is_err());
         assert!(matches!(

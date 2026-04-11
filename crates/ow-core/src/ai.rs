@@ -110,12 +110,7 @@ pub fn decide_action(state: &MissionState, unit_id: MercId) -> Action {
     // Only triggers if there are known enemies to hide from.
     if hp_percent <= LOW_HP_THRESHOLD_PERCENT && my_ap >= 2 {
         if let Some(cover_pos) = find_cover_tile(state, my_pos, unit_id) {
-            debug!(
-                unit_id,
-                hp_percent,
-                ?cover_pos,
-                "AI: low HP, seeking cover"
-            );
+            debug!(unit_id, hp_percent, ?cover_pos, "AI: low HP, seeking cover");
             return Action::Move(cover_pos);
         }
     }
@@ -137,9 +132,7 @@ pub fn decide_action(state: &MissionState, unit_id: MercId) -> Action {
         .collect();
 
     // Sort by distance (nearest first)
-    let nearest_visible = visible_targets
-        .iter()
-        .min_by_key(|(_, _, dist)| *dist);
+    let nearest_visible = visible_targets.iter().min_by_key(|(_, _, dist)| *dist);
 
     // -- Priority 1: Shoot if enemy visible and in range --
     if let Some(&(target_id, _target_pos, dist)) = nearest_visible {
@@ -317,11 +310,11 @@ fn find_cover_tile(state: &MissionState, from: TilePos, _unit_id: MercId) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game_state::MissionPhase;
     use crate::merc::{ActiveMerc, MercStatus, TilePos};
     use crate::mission_setup::{EnemyUnit, MissionObjective, MissionState};
     use crate::pathfinding::{TileInfo, TileMap};
     use crate::weather::Weather;
-    use crate::game_state::MissionPhase;
 
     fn test_player(id: MercId, x: i32, y: i32) -> ActiveMerc {
         ActiveMerc {
@@ -374,11 +367,7 @@ mod tests {
         }
     }
 
-    fn test_state(
-        player_pos: (i32, i32),
-        enemy_pos: (i32, i32),
-        alert_level: u8,
-    ) -> MissionState {
+    fn test_state(player_pos: (i32, i32), enemy_pos: (i32, i32), alert_level: u8) -> MissionState {
         MissionState {
             player_units: vec![test_player(1, player_pos.0, player_pos.1)],
             enemy_units: vec![test_enemy(1001, enemy_pos.0, enemy_pos.1)],
@@ -446,10 +435,7 @@ mod tests {
         match action {
             Action::Move(pos) => {
                 // Should be moving toward the player's general direction
-                let old_dist = tile_distance(
-                    TilePos { x: 5, y: 10 },
-                    TilePos { x: 10, y: 10 },
-                );
+                let old_dist = tile_distance(TilePos { x: 5, y: 10 }, TilePos { x: 10, y: 10 });
                 let new_dist = tile_distance(pos, TilePos { x: 10, y: 10 });
                 assert!(
                     new_dist <= old_dist,

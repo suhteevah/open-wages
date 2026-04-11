@@ -32,7 +32,7 @@ use std::path::Path;
 use thiserror::Error;
 use tracing::{debug, info};
 
-use ow_data::equip::{Equipment, EquipError};
+use ow_data::equip::{EquipError, Equipment};
 use ow_data::mercs::{Mercenary, MercsError};
 use ow_data::mission::{Mission, MissionError};
 use ow_data::strings::{StringTable, StringsError};
@@ -172,10 +172,8 @@ pub fn load_base_ruleset(data_dir: &Path) -> Result<Ruleset, RulesetError> {
     let mercs_path = data_dir.join("MERCS.DAT");
     info!(path = %mercs_path.display(), "Parsing mercenary roster");
     let merc_list = ow_data::mercs::parse_mercs(&mercs_path)?;
-    let mercs: HashMap<String, Mercenary> = merc_list
-        .into_iter()
-        .map(|m| (m.name.clone(), m))
-        .collect();
+    let mercs: HashMap<String, Mercenary> =
+        merc_list.into_iter().map(|m| (m.name.clone(), m)).collect();
     debug!(count = mercs.len(), "Loaded mercenaries into ruleset");
 
     // --- Weapons ---
@@ -271,9 +269,7 @@ pub fn load_base_ruleset(data_dir: &Path) -> Result<Ruleset, RulesetError> {
 /// one new mercenary without having to ship the entire data set.
 pub fn apply_mod_overlay(base: &mut Ruleset, mod_dir: &Path) -> Result<(), RulesetError> {
     if !mod_dir.exists() {
-        return Err(RulesetError::ModNotFound(
-            mod_dir.display().to_string(),
-        ));
+        return Err(RulesetError::ModNotFound(mod_dir.display().to_string()));
     }
 
     let mod_name = mod_dir
@@ -431,7 +427,8 @@ mod tests {
     /// Create a unique temporary directory for a test, returning its path.
     /// Caller is responsible for cleanup via `fs::remove_dir_all`.
     fn make_temp_dir(test_name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("ow_core_test_{test_name}_{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("ow_core_test_{test_name}_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir); // clean up any leftover from prior run
         fs::create_dir_all(&dir).expect("failed to create temp dir");
         dir
@@ -563,9 +560,21 @@ mod tests {
             },
             intelligence: IntelligenceConfig {
                 tiers: [
-                    IntelTier { name: "Basic".to_string(), cost: 100, per_item: 10 },
-                    IntelTier { name: "Standard".to_string(), cost: 200, per_item: 20 },
-                    IntelTier { name: "Premium".to_string(), cost: 500, per_item: 50 },
+                    IntelTier {
+                        name: "Basic".to_string(),
+                        cost: 100,
+                        per_item: 10,
+                    },
+                    IntelTier {
+                        name: "Standard".to_string(),
+                        cost: 200,
+                        per_item: 20,
+                    },
+                    IntelTier {
+                        name: "Premium".to_string(),
+                        cost: 500,
+                        per_item: 50,
+                    },
                 ],
                 men: 10,
                 exp: 3,
@@ -578,29 +587,62 @@ mod tests {
             enemy_count: 1,
             npc_count: 0,
             enemy_ratings: vec![EnemyRating {
-                rating: 5, dpr: 3, exp: 2, str_: 50, agl: 50, wil: 50,
-                wsk: 50, hhc: 50, tch: 50, enc: 100, aps: 8,
-                presence_chance: 100, enemy_type: 2,
+                rating: 5,
+                dpr: 3,
+                exp: 2,
+                str_: 50,
+                agl: 50,
+                wil: 50,
+                wsk: 50,
+                hhc: 50,
+                tch: 50,
+                enc: 100,
+                aps: 8,
+                presence_chance: 100,
+                enemy_type: 2,
             }],
             enemy_weapons: vec![EnemyWeapon {
-                weapon1: 0, weapon2: -1, ammo1: 3, ammo2: 0,
-                weapon3: -1, extra: -1,
+                weapon1: 0,
+                weapon2: -1,
+                ammo1: 3,
+                ammo2: 0,
+                weapon3: -1,
+                extra: -1,
             }],
-            preloaded_equipment: EquipmentCounts { weapons: 1, ammo: 3, equipment: 0 },
-            recommended_equipment: EquipmentCounts { weapons: 0, ammo: 0, equipment: 0 },
+            preloaded_equipment: EquipmentCounts {
+                weapons: 1,
+                ammo: 3,
+                equipment: 0,
+            },
+            recommended_equipment: EquipmentCounts {
+                weapons: 0,
+                ammo: 0,
+                equipment: 0,
+            },
             recommended_item: None,
             start_hour: 8,
             start_minute: 0,
             weather: WeatherTable {
-                clear: 60, foggy: 10, overcast: 15,
-                light_rain: 10, heavy_rain: 3, storm: 2,
+                clear: 60,
+                foggy: 10,
+                overcast: 15,
+                light_rain: 10,
+                heavy_rain: 3,
+                storm: 2,
             },
             travel: TravelTable {
-                cost1: 500, cost2: 1000, cost3: 2000,
-                days1: 5, days2: 3, days3: 1,
+                cost1: 500,
+                cost2: 1000,
+                cost3: 2000,
+                days1: 5,
+                days2: 3,
+                days3: 1,
             },
             special: SpecialConfig {
-                turns: 0, special_type: 0, item: 0, damage: 0,
+                turns: 0,
+                special_type: 0,
+                item: 0,
+                damage: 0,
                 damage_message: None,
             },
         }
@@ -657,7 +699,11 @@ mod tests {
 
         ruleset.equipment.insert(
             "Helmet".to_string(),
-            Equipment { name: "Helmet".to_string(), penetration: 3, encumbrance: 7 },
+            Equipment {
+                name: "Helmet".to_string(),
+                penetration: 3,
+                encumbrance: 7,
+            },
         );
 
         let found = ruleset.get_equipment("Helmet");
@@ -671,7 +717,9 @@ mod tests {
 
         assert!(ruleset.get_mission("MSSN01").is_none());
 
-        ruleset.missions.insert("MSSN01".to_string(), make_test_mission());
+        ruleset
+            .missions
+            .insert("MSSN01".to_string(), make_test_mission());
 
         let found = ruleset.get_mission("MSSN01");
         assert!(found.is_some());
@@ -683,9 +731,15 @@ mod tests {
         let mut ruleset = make_empty_ruleset();
 
         // Insert out of order to verify sorting.
-        ruleset.missions.insert("MSSN05".to_string(), make_test_mission());
-        ruleset.missions.insert("MSSN01".to_string(), make_test_mission());
-        ruleset.missions.insert("MSSN12".to_string(), make_test_mission());
+        ruleset
+            .missions
+            .insert("MSSN05".to_string(), make_test_mission());
+        ruleset
+            .missions
+            .insert("MSSN01".to_string(), make_test_mission());
+        ruleset
+            .missions
+            .insert("MSSN12".to_string(), make_test_mission());
 
         let ids = ruleset.mission_ids();
         assert_eq!(ids, vec!["MSSN01", "MSSN05", "MSSN12"]);
@@ -704,17 +758,33 @@ mod tests {
         let mut base_equip = HashMap::new();
         base_equip.insert(
             "Kevlar Vest".to_string(),
-            Equipment { name: "Kevlar Vest".to_string(), penetration: 10, encumbrance: 20 },
+            Equipment {
+                name: "Kevlar Vest".to_string(),
+                penetration: 10,
+                encumbrance: 20,
+            },
         );
         base_equip.insert(
             "Helmet".to_string(),
-            Equipment { name: "Helmet".to_string(), penetration: 3, encumbrance: 7 },
+            Equipment {
+                name: "Helmet".to_string(),
+                penetration: 3,
+                encumbrance: 7,
+            },
         );
 
         // Mod overrides Kevlar Vest with better stats and adds a new item.
         let mod_items = vec![
-            Equipment { name: "Kevlar Vest".to_string(), penetration: 15, encumbrance: 18 },
-            Equipment { name: "Night Vision Goggles".to_string(), penetration: 0, encumbrance: 3 },
+            Equipment {
+                name: "Kevlar Vest".to_string(),
+                penetration: 15,
+                encumbrance: 18,
+            },
+            Equipment {
+                name: "Night Vision Goggles".to_string(),
+                penetration: 0,
+                encumbrance: 3,
+            },
         ];
 
         // Apply last-writer-wins merge.
@@ -764,10 +834,7 @@ mod tests {
     fn test_overlay_mod_not_found() {
         let mut ruleset = make_empty_ruleset();
 
-        let result = apply_mod_overlay(
-            &mut ruleset,
-            Path::new("/nonexistent/mod/directory"),
-        );
+        let result = apply_mod_overlay(&mut ruleset, Path::new("/nonexistent/mod/directory"));
         assert!(result.is_err());
         match result.unwrap_err() {
             RulesetError::ModNotFound(_) => {} // expected
@@ -783,7 +850,11 @@ mod tests {
         // Insert one base item to verify it survives untouched.
         ruleset.equipment.insert(
             "Helmet".to_string(),
-            Equipment { name: "Helmet".to_string(), penetration: 3, encumbrance: 7 },
+            Equipment {
+                name: "Helmet".to_string(),
+                penetration: 3,
+                encumbrance: 7,
+            },
         );
 
         let result = apply_mod_overlay(&mut ruleset, &mod_dir);
@@ -820,7 +891,11 @@ mod tests {
         // Base has Kevlar Vest with original stats.
         ruleset.equipment.insert(
             "Kevlar Vest".to_string(),
-            Equipment { name: "Kevlar Vest".to_string(), penetration: 10, encumbrance: 20 },
+            Equipment {
+                name: "Kevlar Vest".to_string(),
+                penetration: 10,
+                encumbrance: 20,
+            },
         );
 
         let result = apply_mod_overlay(&mut ruleset, &mod_dir);
@@ -845,8 +920,12 @@ mod tests {
         write_test_equip_dat(&mod_dir, &[("New Item", 5, 10)]);
 
         let mut ruleset = make_empty_ruleset();
-        ruleset.mercs.insert("Hatchet".to_string(), make_test_merc("Hatchet"));
-        ruleset.weapons.insert("M16".to_string(), make_test_weapon("M16"));
+        ruleset
+            .mercs
+            .insert("Hatchet".to_string(), make_test_merc("Hatchet"));
+        ruleset
+            .weapons
+            .insert("M16".to_string(), make_test_weapon("M16"));
 
         let result = apply_mod_overlay(&mut ruleset, &mod_dir);
         assert!(result.is_ok());

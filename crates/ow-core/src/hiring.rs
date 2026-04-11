@@ -94,9 +94,7 @@ impl HiringPool {
         // Check team size limit.
         if team.len() >= MAX_TEAM_SIZE {
             warn!(max = MAX_TEAM_SIZE, "Cannot hire: team full");
-            return Err(HiringError::TeamFull {
-                max: MAX_TEAM_SIZE,
-            });
+            return Err(HiringError::TeamFull { max: MAX_TEAM_SIZE });
         }
 
         // Check if already hired.
@@ -135,11 +133,7 @@ impl HiringPool {
 
         // Deduct hiring fee.
         ledger
-            .debit(
-                cost,
-                format!("Hired {}", merc_name),
-                turn_number,
-            )
+            .debit(cost, format!("Hired {}", merc_name), turn_number)
             .map_err(|_| HiringError::InsufficientFunds {
                 name: merc_name.to_string(),
                 cost,

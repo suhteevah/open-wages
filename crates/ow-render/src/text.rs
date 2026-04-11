@@ -41,10 +41,7 @@ impl<'ttf> TextRenderer<'ttf> {
     /// 1. The provided `font_path` if Some
     /// 2. Windows Consolas (clean monospace, good for stats)
     /// 3. Windows Arial (fallback)
-    pub fn new(
-        ttf_context: &'ttf Sdl2TtfContext,
-        font_path: Option<&str>,
-    ) -> Result<Self, String> {
+    pub fn new(ttf_context: &'ttf Sdl2TtfContext, font_path: Option<&str>) -> Result<Self, String> {
         // Try font paths in preference order.
         let paths_to_try = if let Some(p) = font_path {
             vec![p.to_string()]
@@ -97,7 +94,15 @@ impl<'ttf> TextRenderer<'ttf> {
         y: i32,
         color: Color,
     ) -> Result<(u32, u32), String> {
-        self.draw_with_font(canvas, texture_creator, &self.font_normal, text, x, y, color)
+        self.draw_with_font(
+            canvas,
+            texture_creator,
+            &self.font_normal,
+            text,
+            x,
+            y,
+            color,
+        )
     }
 
     /// Draw text with the header font (larger).
@@ -110,7 +115,15 @@ impl<'ttf> TextRenderer<'ttf> {
         y: i32,
         color: Color,
     ) -> Result<(u32, u32), String> {
-        self.draw_with_font(canvas, texture_creator, &self.font_header, text, x, y, color)
+        self.draw_with_font(
+            canvas,
+            texture_creator,
+            &self.font_header,
+            text,
+            x,
+            y,
+            color,
+        )
     }
 
     /// Draw text with the small font.
@@ -176,7 +189,9 @@ impl<'ttf> TextRenderer<'ttf> {
         if text.is_empty() {
             return Ok((0, 0));
         }
-        let (w, h) = font.size_of(text).map_err(|e| format!("Measure error: {e}"))?;
+        let (w, h) = font
+            .size_of(text)
+            .map_err(|e| format!("Measure error: {e}"))?;
         Ok((w, h))
     }
 }

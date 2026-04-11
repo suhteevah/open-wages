@@ -358,9 +358,8 @@ pub fn setup_mission<R: Rng>(
     // Place NPCs similarly but in the middle of the map
     for npc in npcs.iter_mut() {
         let x = rng.gen_range(0..map.width as i32);
-        let y = rng.gen_range(
-            enemy_zone_max_y.max(0)..((map.height as i32).max(enemy_zone_max_y + 1)),
-        );
+        let y =
+            rng.gen_range(enemy_zone_max_y.max(0)..((map.height as i32).max(enemy_zone_max_y + 1)));
         npc.position = Some(TilePos { x, y });
         trace!(id = npc.id, pos = ?npc.position, "Placed NPC");
     }
@@ -387,10 +386,7 @@ pub fn setup_mission<R: Rng>(
         }
         _ => {
             // Default: eliminate all enemies + extract
-            vec![
-                MissionObjective::EliminateAll,
-                MissionObjective::Extract,
-            ]
+            vec![MissionObjective::EliminateAll, MissionObjective::Extract]
         }
     };
 
@@ -454,7 +450,7 @@ mod tests {
                 enc: 200,
                 aps: 20,
                 presence_chance: 100, // guaranteed spawn
-                enemy_type: 2,       // enemy combatant
+                enemy_type: 2,        // enemy combatant
             });
             weapons.push(EnemyWeapon {
                 weapon1: i as i8,
@@ -509,9 +505,21 @@ mod tests {
             },
             intelligence: IntelligenceConfig {
                 tiers: [
-                    IntelTier { name: "Low".into(), cost: 100, per_item: 10 },
-                    IntelTier { name: "Mid".into(), cost: 200, per_item: 20 },
-                    IntelTier { name: "High".into(), cost: 500, per_item: 50 },
+                    IntelTier {
+                        name: "Low".into(),
+                        cost: 100,
+                        per_item: 10,
+                    },
+                    IntelTier {
+                        name: "Mid".into(),
+                        cost: 200,
+                        per_item: 20,
+                    },
+                    IntelTier {
+                        name: "High".into(),
+                        cost: 500,
+                        per_item: 50,
+                    },
                 ],
                 men: enemy_count as u8,
                 exp: 3,
@@ -525,8 +533,16 @@ mod tests {
             npc_count: 0,
             enemy_ratings: ratings,
             enemy_weapons: weapons,
-            preloaded_equipment: EquipmentCounts { weapons: 0, ammo: 0, equipment: 0 },
-            recommended_equipment: EquipmentCounts { weapons: 0, ammo: 0, equipment: 0 },
+            preloaded_equipment: EquipmentCounts {
+                weapons: 0,
+                ammo: 0,
+                equipment: 0,
+            },
+            recommended_equipment: EquipmentCounts {
+                weapons: 0,
+                ammo: 0,
+                equipment: 0,
+            },
             recommended_item: None,
             start_hour: 8,
             start_minute: 0,
@@ -539,8 +555,12 @@ mod tests {
                 storm: 0,
             },
             travel: TravelTable {
-                cost1: 1000, cost2: 2000, cost3: 5000,
-                days1: 5, days2: 3, days3: 1,
+                cost1: 1000,
+                cost2: 2000,
+                cost3: 5000,
+                days1: 5,
+                days2: 3,
+                days3: 1,
             },
             special: SpecialConfig {
                 turns: 0,
@@ -650,7 +670,10 @@ mod tests {
         let state = setup_mission(&mission, &team, map, &mut rng);
 
         assert!(state.objectives.len() >= 2);
-        assert!(matches!(state.objectives[0], MissionObjective::EliminateAll));
+        assert!(matches!(
+            state.objectives[0],
+            MissionObjective::EliminateAll
+        ));
         assert!(matches!(state.objectives[1], MissionObjective::Extract));
     }
 

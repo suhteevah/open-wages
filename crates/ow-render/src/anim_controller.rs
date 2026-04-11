@@ -126,17 +126,17 @@ impl AnimAction {
             0 => Some(AnimAction::Walk),
             1 => Some(AnimAction::Run),
             11 => Some(AnimAction::Throw),
-            25 => Some(AnimAction::Die),       // animal death
+            25 => Some(AnimAction::Die), // animal death
             26 => Some(AnimAction::Crawl),
-            29 | 30 => Some(AnimAction::Hit),   // weapon-specific hit reactions
+            29 | 30 => Some(AnimAction::Hit), // weapon-specific hit reactions
             31..=36 => Some(AnimAction::Die),
-            38 | 40 => Some(AnimAction::Die),   // posture death transitions
+            38 | 40 => Some(AnimAction::Die), // posture death transitions
             41..=44 => Some(AnimAction::Melee),
             45 | 46 => Some(AnimAction::Idle),
             50..=52 => Some(AnimAction::ShootStand),
             53..=56 => Some(AnimAction::ShootCrouch),
-            58 | 59 => Some(AnimAction::Die),   // kneel/prone death
-            61 => Some(AnimAction::Melee),      // animal attack
+            58 | 59 => Some(AnimAction::Die), // kneel/prone death
+            61 => Some(AnimAction::Melee),    // animal attack
             _ => None,
         }
     }
@@ -146,7 +146,10 @@ impl AnimAction {
     /// Walk, Run, Idle, and Crawl loop continuously. All other actions
     /// (shooting, dying, throwing, melee) play once and hold on the final frame.
     pub fn is_looping(self) -> bool {
-        matches!(self, AnimAction::Idle | AnimAction::Walk | AnimAction::Run | AnimAction::Crawl)
+        matches!(
+            self,
+            AnimAction::Idle | AnimAction::Walk | AnimAction::Run | AnimAction::Crawl
+        )
     }
 }
 
@@ -505,7 +508,10 @@ mod tests {
         assert_eq!(AnimAction::from_action_id(42), Some(AnimAction::Melee));
         assert_eq!(AnimAction::from_action_id(45), Some(AnimAction::Idle));
         assert_eq!(AnimAction::from_action_id(51), Some(AnimAction::ShootStand));
-        assert_eq!(AnimAction::from_action_id(54), Some(AnimAction::ShootCrouch));
+        assert_eq!(
+            AnimAction::from_action_id(54),
+            Some(AnimAction::ShootCrouch)
+        );
         assert_eq!(AnimAction::from_action_id(61), Some(AnimAction::Melee));
     }
 

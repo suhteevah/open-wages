@@ -152,9 +152,7 @@ impl NegotiationState {
             self.counter_round += 1;
             warn!(
                 round = self.counter_round - 1,
-                roll,
-                chance,
-                "Counter-offer rejected"
+                roll, chance, "Counter-offer rejected"
             );
             return Err(ContractError::CounterRejected);
         }
@@ -279,8 +277,7 @@ mod tests {
 
     #[test]
     fn successful_counter_offer_updates_advance() {
-        let mut state =
-            NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
+        let mut state = NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
         let neg = test_negotiation();
 
         // Roll 0 < chance 80 -> accepted
@@ -293,8 +290,7 @@ mod tests {
 
     #[test]
     fn successful_counter_offer_updates_bonus() {
-        let mut state =
-            NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
+        let mut state = NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
         let neg = test_negotiation();
 
         let offer = state
@@ -305,8 +301,7 @@ mod tests {
 
     #[test]
     fn successful_counter_offer_updates_deadline() {
-        let mut state =
-            NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
+        let mut state = NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
         let neg = test_negotiation();
 
         let offer = state
@@ -317,8 +312,7 @@ mod tests {
 
     #[test]
     fn rejected_counter_offer_still_consumes_round() {
-        let mut state =
-            NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
+        let mut state = NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
         let neg = test_negotiation();
 
         // Roll 99 >= chance 80 -> rejected
@@ -331,8 +325,7 @@ mod tests {
 
     #[test]
     fn max_counter_offers_exhausted() {
-        let mut state =
-            NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
+        let mut state = NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
         let neg = test_negotiation();
 
         // Use up all 4 rounds (all successful with roll=0).
@@ -351,8 +344,7 @@ mod tests {
 
     #[test]
     fn rounds_remaining_decreases() {
-        let mut state =
-            NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
+        let mut state = NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
         let neg = test_negotiation();
 
         assert_eq!(state.rounds_remaining(), 4);
@@ -364,8 +356,7 @@ mod tests {
 
     #[test]
     fn counter_then_accept_uses_updated_terms() {
-        let mut state =
-            NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
+        let mut state = NegotiationState::new("Client".into(), "Job".into(), 50_000, 100_000, 30);
         let neg = test_negotiation();
         let mut ledger = Ledger::new(0);
 

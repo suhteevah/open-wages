@@ -87,10 +87,7 @@ pub enum MovesError {
     UnexpectedEof { line: usize },
 
     #[error("line {line}: missing field '{field}' in entity header")]
-    MissingEntityField {
-        line: usize,
-        field: &'static str,
-    },
+    MissingEntityField { line: usize, field: &'static str },
 }
 
 /// A single waypoint command in an alert level.
@@ -261,8 +258,11 @@ pub fn parse_moves(path: &Path) -> Result<MoveScript, MovesError> {
         let (behavior, new_cursor) = parse_entity_block(&lines, cursor)?;
         debug!(
             "parsed entity '{}': npc_type={} attached_to={} setup=({},{})",
-            behavior.label, behavior.npc_type, behavior.attached_to,
-            behavior.setup_tile, behavior.setup_grid
+            behavior.label,
+            behavior.npc_type,
+            behavior.attached_to,
+            behavior.setup_tile,
+            behavior.setup_grid
         );
         behaviors.push(behavior);
         cursor = new_cursor;
@@ -329,7 +329,10 @@ fn parse_header_line(line: &str, line_num: usize, field: &'static str) -> Result
     let lower = line.to_lowercase();
     let prefix = format!("{}:", field.to_lowercase());
     if !lower.starts_with(&prefix) {
-        return Err(MovesError::MissingHeader { line: line_num, field });
+        return Err(MovesError::MissingHeader {
+            line: line_num,
+            field,
+        });
     }
     let val_str = line[prefix.len()..].trim();
     val_str.parse().map_err(|_| MovesError::InvalidHeader {
@@ -347,10 +350,7 @@ fn parse_header_line(line: &str, line_num: usize, field: &'static str) -> Result
 /// - Line 3: "Attached To: <n>"
 /// - Line 4: "Setup: <tile_id> <grid>"
 /// - Lines 5-10: "Level 1: ..." through "Level 6: ..." (one per alert level)
-fn parse_entity_block(
-    lines: &[&str],
-    start: usize,
-) -> Result<(EntityBehavior, usize), MovesError> {
+fn parse_entity_block(lines: &[&str], start: usize) -> Result<(EntityBehavior, usize), MovesError> {
     let mut cursor = start;
 
     let get = |idx: usize| -> Result<&str, MovesError> {
@@ -389,16 +389,8 @@ fn parse_entity_block(
         })?
         .trim();
     let setup_parts: Vec<&str> = setup_rest.split_whitespace().collect();
-    let setup_tile: u32 = setup_parts
-        .first()
-        .unwrap_or(&"0")
-        .parse()
-        .unwrap_or(0);
-    let setup_grid: u8 = setup_parts
-        .get(1)
-        .unwrap_or(&"0")
-        .parse()
-        .unwrap_or(0);
+    let setup_tile: u32 = setup_parts.first().unwrap_or(&"0").parse().unwrap_or(0);
+    let setup_grid: u8 = setup_parts.get(1).unwrap_or(&"0").parse().unwrap_or(0);
     trace!(
         "line {}: setup tile={} grid={}",
         cursor + 1,
@@ -440,11 +432,18 @@ fn parse_entity_block(
 }
 
 /// Extract a trailing integer from a "Key: value" line.
-fn extract_trailing_int(line: &str, line_num: usize, field: &'static str) -> Result<u32, MovesError> {
+fn extract_trailing_int(
+    line: &str,
+    line_num: usize,
+    field: &'static str,
+) -> Result<u32, MovesError> {
     let val_str = line
         .split(':')
         .nth(1)
-        .ok_or(MovesError::MissingEntityField { line: line_num, field })?
+        .ok_or(MovesError::MissingEntityField {
+            line: line_num,
+            field,
+        })?
         .trim();
     val_str.parse().map_err(|_| MovesError::InvalidLevelData {
         line: line_num,
@@ -464,11 +463,7 @@ fn parse_level_line(
 ) -> Result<AlertLevel, MovesError> {
     // Split off "Level N:" prefix. We rejoin with ":" in case the line
     // contains colons elsewhere (unlikely but defensive).
-    let after_colon = line
-        .split(':')
-        .skip(1)
-        .collect::<Vec<&str>>()
-        .join(":");
+    let after_colon = line.split(':').skip(1).collect::<Vec<&str>>().join(":");
     let after_colon = after_colon.trim();
 
     // The first token is the threshold.
@@ -480,10 +475,12 @@ fn parse_level_line(
         });
     }
 
-    let threshold: u32 = tokens[0].parse().map_err(|_| MovesError::InvalidLevelData {
-        line: line_num,
-        detail: format!("'{}' is not a valid threshold", tokens[0]),
-    })?;
+    let threshold: u32 = tokens[0]
+        .parse()
+        .map_err(|_| MovesError::InvalidLevelData {
+            line: line_num,
+            detail: format!("'{}' is not a valid threshold", tokens[0]),
+        })?;
 
     // Remaining tokens are triplets: Action TileID Grid. We consume them
     // 3 at a time. If there's a partial triplet at the end, we stop — this
@@ -509,15 +506,19 @@ fn parse_level_line(
             });
         }
 
-        let tile_id: u32 = tokens[i + 1].parse().map_err(|_| MovesError::InvalidLevelData {
-            line: line_num,
-            detail: format!("'{}' is not a valid tile ID", tokens[i + 1]),
-        })?;
+        let tile_id: u32 = tokens[i + 1]
+            .parse()
+            .map_err(|_| MovesError::InvalidLevelData {
+                line: line_num,
+                detail: format!("'{}' is not a valid tile ID", tokens[i + 1]),
+            })?;
 
-        let grid: u8 = tokens[i + 2].parse().map_err(|_| MovesError::InvalidLevelData {
-            line: line_num,
-            detail: format!("'{}' is not a valid grid value", tokens[i + 2]),
-        })?;
+        let grid: u8 = tokens[i + 2]
+            .parse()
+            .map_err(|_| MovesError::InvalidLevelData {
+                line: line_num,
+                detail: format!("'{}' is not a valid grid value", tokens[i + 2]),
+            })?;
 
         commands.push(MoveCommand {
             action,
@@ -527,7 +528,10 @@ fn parse_level_line(
         i += 3;
     }
 
-    Ok(AlertLevel { threshold, commands })
+    Ok(AlertLevel {
+        threshold,
+        commands,
+    })
 }
 
 #[cfg(test)]

@@ -365,11 +365,7 @@ mod tests {
 
     #[test]
     fn test_parse_melee_weapon() {
-        let w = parse_weapon_line(
-            "Bowie_Knife  0 2 18 14 0-0 0 0 0 220 0 0 0 None 8",
-            1,
-        )
-        .unwrap();
+        let w = parse_weapon_line("Bowie_Knife  0 2 18 14 0-0 0 0 0 220 0 0 0 None 8", 1).unwrap();
         assert_eq!(w.name, "Bowie Knife");
         assert_eq!(w.attack_dice, AttackDieFormula { min: 0, max: 0 });
         assert_eq!(w.ammo_name, "None");
@@ -472,11 +468,7 @@ Bowie_Knife  0 2 18 14 0-0 0 0 0 220 0 0 0 None 8\r\n";
 
     #[test]
     fn test_disposable_rocket_types() {
-        let w = parse_weapon_line(
-            "M72_A2  12 7 46 85 1-1 90 7 4 6200 1 0 0 66mm 15",
-            1,
-        )
-        .unwrap();
+        let w = parse_weapon_line("M72_A2  12 7 46 85 1-1 90 7 4 6200 1 0 0 66mm 15", 1).unwrap();
         assert_eq!(w.weapon_type, WeaponType::DisposableRocketKeep);
 
         let w = parse_weapon_line(

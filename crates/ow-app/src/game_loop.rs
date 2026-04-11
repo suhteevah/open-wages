@@ -76,9 +76,7 @@ const WINDOW_HEIGHT: u32 = 720;
 #[derive(Debug)]
 pub enum PhaseHandler {
     /// Office phase — tracks which sub-phase (overview, hiring, etc.) is shown.
-    Office {
-        sub_phase: OfficePhase,
-    },
+    Office { sub_phase: OfficePhase },
 
     /// Travel screen — purely cosmetic, auto-advances after a short delay.
     Travel {
@@ -233,9 +231,9 @@ fn phase_handler_for(phase: &GamePhase) -> PhaseHandler {
     match phase {
         GamePhase::Office(sub) => PhaseHandler::Office { sub_phase: *sub },
         GamePhase::Travel => PhaseHandler::Travel { elapsed_ms: 0 },
-        GamePhase::Mission(MissionPhase::Deployment) => PhaseHandler::Deployment {
-            selected_unit: 0,
-        },
+        GamePhase::Mission(MissionPhase::Deployment) => {
+            PhaseHandler::Deployment { selected_unit: 0 }
+        }
         GamePhase::Mission(MissionPhase::Combat) => PhaseHandler::Combat(CombatHandler {
             initiative_order: Vec::new(),
             current_initiative_idx: 0,
@@ -282,9 +280,7 @@ fn music_track_for_phase_with_mission(
     mission_num: Option<u32>,
 ) -> Option<String> {
     match handler {
-        PhaseHandler::Deployment { .. }
-        | PhaseHandler::Combat(_)
-        | PhaseHandler::Extraction => {
+        PhaseHandler::Deployment { .. } | PhaseHandler::Combat(_) | PhaseHandler::Extraction => {
             let n = mission_num.unwrap_or(1).clamp(1, 9);
             Some(format!("WOWMIS{n:02}"))
         }
@@ -310,8 +306,11 @@ fn start_music<'a>(midi_dir: &Path, track_name: &str) -> Option<Music<'a>> {
                       "SDL2_mixer failed to play MIDI -- continuing without music");
                 None
             } else {
-                info!(track = track_name, volume = MUSIC_VOLUME,
-                      "Now playing MIDI track");
+                info!(
+                    track = track_name,
+                    volume = MUSIC_VOLUME,
+                    "Now playing MIDI track"
+                );
                 Some(music)
             }
         }
@@ -417,8 +416,8 @@ pub fn run_game_loop(
         .map_err(|e| anyhow::anyhow!("Failed to get SDL2 event pump: {e}"))?;
 
     // Initialize text rendering — loads a system font for UI text.
-    let ttf_context = sdl2::ttf::init()
-        .map_err(|e| anyhow::anyhow!("SDL2_ttf init failed: {e}"))?;
+    let ttf_context =
+        sdl2::ttf::init().map_err(|e| anyhow::anyhow!("SDL2_ttf init failed: {e}"))?;
     let text_renderer = TextRenderer::new(&ttf_context, None)
         .map_err(|e| anyhow::anyhow!("Font loading failed: {e}"))?;
     let texture_creator = canvas.texture_creator();
@@ -427,12 +426,7 @@ pub fn run_game_loop(
     // MIDI music via SDL2_mixer
     // -----------------------------------------------------------------------
     let midi_dir = data_dir.join("WOW").join("MIDI");
-    let audio_available = match sdl2::mixer::open_audio(
-        44100,
-        sdl2::mixer::AUDIO_S16LSB,
-        2,
-        1024,
-    ) {
+    let audio_available = match sdl2::mixer::open_audio(44100, sdl2::mixer::AUDIO_S16LSB, 2, 1024) {
         Ok(()) => {
             info!("SDL2_mixer audio device opened (44100 Hz, S16LSB, stereo)");
             true
@@ -471,13 +465,23 @@ pub fn run_game_loop(
         let pcx_path = data_dir.join("WOW").join("PIC").join("OFFPIC2.PCX");
         match ow_render::pcx::load_pcx(&pcx_path) {
             Ok(img) => {
-                info!(width = img.width, height = img.height, "Office background loaded");
+                info!(
+                    width = img.width,
+                    height = img.height,
+                    "Office background loaded"
+                );
                 match ow_render::pcx::pcx_to_texture(&img, &texture_creator) {
                     Ok(tex) => Some(tex),
-                    Err(e) => { warn!("Failed to create office texture: {e}"); None }
+                    Err(e) => {
+                        warn!("Failed to create office texture: {e}");
+                        None
+                    }
                 }
             }
-            Err(e) => { warn!("Failed to load OFFICE.PCX: {e}"); None }
+            Err(e) => {
+                warn!("Failed to load OFFICE.PCX: {e}");
+                None
+            }
         }
     };
 
@@ -523,7 +527,10 @@ pub fn run_game_loop(
                 }
 
                 // Track window resizes so click coordinates scale correctly.
-                Event::Window { win_event: sdl2::event::WindowEvent::Resized(w, h), .. } => {
+                Event::Window {
+                    win_event: sdl2::event::WindowEvent::Resized(w, h),
+                    ..
+                } => {
                     game.window_width = w as u32;
                     game.window_height = h as u32;
                     debug!(width = w, height = h, "Window resized");
@@ -531,7 +538,8 @@ pub fn run_game_loop(
 
                 // F12 saves a screenshot to disk.
                 Event::KeyDown {
-                    keycode: Some(Keycode::F12), ..
+                    keycode: Some(Keycode::F12),
+                    ..
                 } => {
                     save_screenshot(&canvas);
                 }
@@ -555,7 +563,10 @@ pub fn run_game_loop(
         // If they differ, stop old music and start the new track.
         // Uses mission number for mission-phase track selection (WOWMIS01–09).
         if audio_available {
-            let mission_num = game.game_state.current_mission.as_ref()
+            let mission_num = game
+                .game_state
+                .current_mission
+                .as_ref()
                 .and_then(|m| m.name.strip_prefix("MSSN"))
                 .and_then(|n| n.parse::<u32>().ok());
             let wanted = music_track_for_phase_with_mission(&game.phase_handler, mission_num);
@@ -588,7 +599,10 @@ pub fn run_game_loop(
         // We check if we just transitioned to Deployment and haven't loaded a map yet.
         if matches!(game.phase_handler, PhaseHandler::Deployment { .. }) && loaded_map.is_none() {
             // Determine which mission scenario to load from the accepted contract.
-            let mission_num = game.game_state.current_mission.as_ref()
+            let mission_num = game
+                .game_state
+                .current_mission
+                .as_ref()
                 .and_then(|m| m.name.strip_prefix("MSSN"))
                 .and_then(|n| n.parse::<u32>().ok())
                 .unwrap_or(1);
@@ -597,11 +611,18 @@ pub fn run_game_loop(
 
             // Load MAP file from WOW/MAPS/SCEN{n}/
             // Try SCEN{n}.MAP first, then SCEN{n}A.MAP (the actual filename varies).
-            let scen_dir = data_dir.join("WOW").join("MAPS").join(format!("SCEN{mission_num}"));
+            let scen_dir = data_dir
+                .join("WOW")
+                .join("MAPS")
+                .join(format!("SCEN{mission_num}"));
             let map_path = {
                 let try1 = scen_dir.join(format!("SCEN{mission_num}.MAP"));
                 let try2 = scen_dir.join(format!("SCEN{mission_num}A.MAP"));
-                if try1.exists() { try1 } else { try2 }
+                if try1.exists() {
+                    try1
+                } else {
+                    try2
+                }
             };
 
             match ow_data::map_loader::parse_map(&map_path) {
@@ -612,9 +633,11 @@ pub fn run_game_loop(
                     // Load the TIL tileset referenced by the MAP's string table.
                     // The MAP references paths like "C:\WOW\SPR\SCEN1\TILSCN01.TIL".
                     // The TIL files live in WOW/SPR/SCEN{n}/, not WOW/MAPS/SCEN{n}/.
-                    let til_name = ow_data::map_loader::filename_from_build_path(
-                        &map.asset_refs.tileset_path);
-                    let spr_scen_dir = data_dir.join("WOW").join("SPR")
+                    let til_name =
+                        ow_data::map_loader::filename_from_build_path(&map.asset_refs.tileset_path);
+                    let spr_scen_dir = data_dir
+                        .join("WOW")
+                        .join("SPR")
                         .join(format!("SCEN{mission_num}"));
                     let til_path = spr_scen_dir.join(til_name);
                     match ow_data::sprite::parse_sprite_file(&til_path) {
@@ -633,97 +656,119 @@ pub fn run_game_loop(
                                     Some(offpic)
                                 } else {
                                     std::fs::read_dir(&pic_dir).ok().and_then(|entries| {
-                                        entries.flatten().find(|e| {
-                                            e.path().extension().map(|x| x.to_ascii_uppercase()) == Some("PCX".into())
-                                        }).map(|e| e.path())
+                                        entries
+                                            .flatten()
+                                            .find(|e| {
+                                                e.path().extension().map(|x| x.to_ascii_uppercase())
+                                                    == Some("PCX".into())
+                                            })
+                                            .map(|e| e.path())
                                     })
                                 }
                             };
                             if let Some(pcx_path) = pal_pcx {
-                                        match ow_render::palette::load_pcx_palette(&pcx_path) {
-                                            Ok(pal) => {
-                                                // Create tile renderer and load textures.
-                                                let mut tr = ow_render::tile_renderer::TileMapRenderer::new(&texture_creator);
-                                                if let Err(e) = tr.load_tileset(&tileset, &pal) {
-                                                    warn!("Failed to load tileset textures: {e}");
-                                                } else {
-                                                    let tw = tr.tile_pixel_width() as f32;
-                                                    let th = tr.tile_pixel_height() as f32;
-                                                    info!(tile_w = tw, tile_h = th,
-                                                          tiles = tr.tile_count(), "Tiles ready");
+                                match ow_render::palette::load_pcx_palette(&pcx_path) {
+                                    Ok(pal) => {
+                                        // Create tile renderer and load textures.
+                                        let mut tr = ow_render::tile_renderer::TileMapRenderer::new(
+                                            &texture_creator,
+                                        );
+                                        if let Err(e) = tr.load_tileset(&tileset, &pal) {
+                                            warn!("Failed to load tileset textures: {e}");
+                                        } else {
+                                            let tw = tr.tile_pixel_width() as f32;
+                                            let th = tr.tile_pixel_height() as f32;
+                                            info!(
+                                                tile_w = tw,
+                                                tile_h = th,
+                                                tiles = tr.tile_count(),
+                                                "Tiles ready"
+                                            );
 
-                                                    // Configure iso projection for the map.
-                                                    // The tile sprites are 128x63 pixels, but the isometric
-                                                    // grid step is half the sprite height — tiles overlap
-                                                    // vertically to create the seamless diamond pattern.
-                                                    // tile_width = sprite width (horizontal step between columns)
-                                                    // tile_height = sprite height / 2 (vertical step between rows)
-                                                    let mis_iso = IsoConfig {
-                                                        tile_width: tw,
-                                                        tile_height: th / 2.0,
-                                                        origin_x: 0.0,
-                                                        origin_y: 0.0,
-                                                    };
-                                                    game.mission_iso = Some(IsoConfig {
-                                                        tile_width: tw,
-                                                        tile_height: th / 2.0,
-                                                        origin_x: 0.0,
-                                                        origin_y: 0.0,
-                                                    });
-                                                    mission_iso_config = Some(mis_iso);
+                                            // Configure iso projection for the map.
+                                            // The tile sprites are 128x63 pixels, but the isometric
+                                            // grid step is half the sprite height — tiles overlap
+                                            // vertically to create the seamless diamond pattern.
+                                            // tile_width = sprite width (horizontal step between columns)
+                                            // tile_height = sprite height / 2 (vertical step between rows)
+                                            let mis_iso = IsoConfig {
+                                                tile_width: tw,
+                                                tile_height: th / 2.0,
+                                                origin_x: 0.0,
+                                                origin_y: 0.0,
+                                            };
+                                            game.mission_iso = Some(IsoConfig {
+                                                tile_width: tw,
+                                                tile_height: th / 2.0,
+                                                origin_x: 0.0,
+                                                origin_y: 0.0,
+                                            });
+                                            mission_iso_config = Some(mis_iso);
 
-                                                    // Center the camera on the middle of the map.
-                                                    let mid_x = (map.width() as f32 / 2.0) * (tw / 2.0);
-                                                    let mid_y = (map.active_rows() as f32 / 2.0) * (th / 2.0);
-                                                    game.camera.x = mid_x - (game.window_width as f32 / 2.0);
-                                                    game.camera.y = mid_y - (game.window_height as f32 / 2.0);
-                                                    tile_renderer = Some(tr);
+                                            // Center the camera on the middle of the map.
+                                            let mid_x = (map.width() as f32 / 2.0) * (tw / 2.0);
+                                            let mid_y =
+                                                (map.active_rows() as f32 / 2.0) * (th / 2.0);
+                                            game.camera.x =
+                                                mid_x - (game.window_width as f32 / 2.0);
+                                            game.camera.y =
+                                                mid_y - (game.window_height as f32 / 2.0);
+                                            tile_renderer = Some(tr);
 
-                                                    // Load the OBJ sprite sheet for map objects
-                                                    // (buildings, walls, fences, trees).
-                                                    // Same sprite container format as TIL, lives
-                                                    // in the same SPR/SCEN{n}/ directory.
-                                                    let obj_name = ow_data::map_loader::filename_from_build_path(
-                                                        &map.asset_refs.object_sprite_path);
-                                                    let obj_path = spr_scen_dir.join(obj_name);
-                                                    if obj_path.exists() {
-                                                        match ow_data::sprite::parse_sprite_file(&obj_path) {
-                                                            Ok(obj_sheet) => {
-                                                                info!(
-                                                                    sprites = obj_sheet.file_header.sprite_count,
-                                                                    path = %obj_path.display(),
-                                                                    "OBJ sprite sheet loaded"
-                                                                );
-                                                                let mut or = ow_render::tile_renderer::TileMapRenderer::new(&texture_creator);
-                                                                if let Err(e) = or.load_tileset(&obj_sheet, &pal) {
-                                                                    warn!("Failed to load OBJ textures: {e}");
-                                                                } else {
-                                                                    info!(
-                                                                        obj_tiles = or.tile_count(),
-                                                                        obj_w = or.tile_pixel_width(),
-                                                                        obj_h = or.tile_pixel_height(),
-                                                                        "OBJ textures ready"
-                                                                    );
-                                                                    obj_renderer = Some(or);
-                                                                }
-                                                            }
-                                                            Err(e) => warn!("Failed to load OBJ sheet {obj_name}: {e}"),
+                                            // Load the OBJ sprite sheet for map objects
+                                            // (buildings, walls, fences, trees).
+                                            // Same sprite container format as TIL, lives
+                                            // in the same SPR/SCEN{n}/ directory.
+                                            let obj_name =
+                                                ow_data::map_loader::filename_from_build_path(
+                                                    &map.asset_refs.object_sprite_path,
+                                                );
+                                            let obj_path = spr_scen_dir.join(obj_name);
+                                            if obj_path.exists() {
+                                                match ow_data::sprite::parse_sprite_file(&obj_path)
+                                                {
+                                                    Ok(obj_sheet) => {
+                                                        info!(
+                                                            sprites = obj_sheet.file_header.sprite_count,
+                                                            path = %obj_path.display(),
+                                                            "OBJ sprite sheet loaded"
+                                                        );
+                                                        let mut or = ow_render::tile_renderer::TileMapRenderer::new(&texture_creator);
+                                                        if let Err(e) =
+                                                            or.load_tileset(&obj_sheet, &pal)
+                                                        {
+                                                            warn!(
+                                                                "Failed to load OBJ textures: {e}"
+                                                            );
+                                                        } else {
+                                                            info!(
+                                                                obj_tiles = or.tile_count(),
+                                                                obj_w = or.tile_pixel_width(),
+                                                                obj_h = or.tile_pixel_height(),
+                                                                "OBJ textures ready"
+                                                            );
+                                                            obj_renderer = Some(or);
                                                         }
-                                                    } else {
-                                                        warn!(path = %obj_path.display(), "OBJ sprite file not found");
                                                     }
+                                                    Err(e) => warn!(
+                                                        "Failed to load OBJ sheet {obj_name}: {e}"
+                                                    ),
                                                 }
+                                            } else {
+                                                warn!(path = %obj_path.display(), "OBJ sprite file not found");
                                             }
-                                            Err(e) => warn!("Palette error: {e}"),
                                         }
+                                    }
+                                    Err(e) => warn!("Palette error: {e}"),
+                                }
                             }
                             // Generate enemy units from mission data.
                             let mission_key = format!("MSSN{mission_num:02}");
                             if let Some(mission_data) = ruleset.missions.get(&mission_key) {
                                 let mut rng = rand::thread_rng();
                                 // Generate enemies with random positions on the map.
-                                let max_player_id = game.game_state.team.iter()
-                                    .map(|m| m.id).max().unwrap_or(0);
+                                let max_player_id =
+                                    game.game_state.team.iter().map(|m| m.id).max().unwrap_or(0);
                                 let mut next_id = max_player_id + 1000;
 
                                 for (i, rating) in mission_data.enemy_ratings.iter().enumerate() {
@@ -737,10 +782,16 @@ pub fn run_game_loop(
                                     let ex: i32 = rng.gen_range(20..180);
                                     let ey: i32 = rng.gen_range(10..100);
                                     let default_weapon = ow_data::mission::EnemyWeapon {
-                                        weapon1: -1, weapon2: -1, ammo1: 0, ammo2: 0,
-                                        weapon3: -1, extra: 0,
+                                        weapon1: -1,
+                                        weapon2: -1,
+                                        ammo1: 0,
+                                        ammo2: 0,
+                                        weapon3: -1,
+                                        extra: 0,
                                     };
-                                    let weapon = mission_data.enemy_weapons.get(i)
+                                    let weapon = mission_data
+                                        .enemy_weapons
+                                        .get(i)
                                         .unwrap_or(&default_weapon);
                                     let mut enemy = ow_core::mission_setup::EnemyUnit::from_rating(
                                         next_id, rating, weapon,
@@ -773,8 +824,18 @@ pub fn run_game_loop(
         canvas.set_draw_color(bg);
         canvas.clear();
 
-        render_phase(&game, &mut canvas, &text_renderer, &texture_creator, &ruleset, &office_texture,
-                     &tile_renderer, &obj_renderer, &loaded_map, &mission_iso_config);
+        render_phase(
+            &game,
+            &mut canvas,
+            &text_renderer,
+            &texture_creator,
+            &ruleset,
+            &office_texture,
+            &tile_renderer,
+            &obj_renderer,
+            &loaded_map,
+            &mission_iso_config,
+        );
 
         // Title bar shows the current phase (placeholder for real UI)
         let label = phase_label(&game.phase_handler);
@@ -819,7 +880,8 @@ fn handle_escape(game: &mut GameLoop) -> bool {
         // the current overlay and returns to the main office scene.
         PhaseHandler::Office { sub_phase } if *sub_phase != OfficePhase::Overview => {
             info!(from = ?sub_phase, "Returning to office overview");
-            game.game_state.set_phase(GamePhase::Office(OfficePhase::Overview));
+            game.game_state
+                .set_phase(GamePhase::Office(OfficePhase::Overview));
             game.phase_handler = PhaseHandler::Office {
                 sub_phase: OfficePhase::Overview,
             };
@@ -832,7 +894,9 @@ fn handle_escape(game: &mut GameLoop) -> bool {
             info!("Resuming from pause");
             let prev = std::mem::replace(
                 &mut game.phase_handler,
-                PhaseHandler::Office { sub_phase: OfficePhase::Overview },
+                PhaseHandler::Office {
+                    sub_phase: OfficePhase::Overview,
+                },
             );
             if let PhaseHandler::Paused { previous } = prev {
                 game.phase_handler = *previous;
@@ -967,17 +1031,20 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
     // On high-DPI displays, SDL2 mouse events use LOGICAL pixels
     // (window size), not physical pixels (canvas output size).
     // We use game.window_width/height (logical) for mouse mapping.
-    let check_hit = |mx: i32, my: i32, x1: i32, y1: i32, x2: i32, y2: i32, ww: u32, wh: u32| -> bool {
-        let sx = (mx as f32 * 640.0 / ww as f32) as i32;
-        let sy = (my as f32 * 480.0 / wh as f32) as i32;
-        sx >= x1 && sx <= x2 && sy >= y1 && sy <= y2
-    };
+    let check_hit =
+        |mx: i32, my: i32, x1: i32, y1: i32, x2: i32, y2: i32, ww: u32, wh: u32| -> bool {
+            let sx = (mx as f32 * 640.0 / ww as f32) as i32;
+            let sy = (my as f32 * 480.0 / wh as f32) as i32;
+            sx >= x1 && sx <= x2 && sy >= y1 && sy <= y2
+        };
 
     match event {
         // Mouse click on the office scene — check which object was clicked.
         Event::MouseButtonDown {
             mouse_btn: MouseButton::Left,
-            x, y, ..
+            x,
+            y,
+            ..
         } => {
             let (ww, wh) = (game.window_width, game.window_height);
 
@@ -997,7 +1064,8 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
                     sorted_mercs.sort_by(|a, b| b.rating.cmp(&a.rating));
 
                     if let Some(merc) = sorted_mercs.get(row) {
-                        let already_hired = game.game_state.team.iter().any(|m| m.name == merc.name);
+                        let already_hired =
+                            game.game_state.team.iter().any(|m| m.name == merc.name);
 
                         if already_hired {
                             // Fire the merc — remove from team (no refund, like the original).
@@ -1046,7 +1114,9 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
                     if let Some(mid) = mission_ids.get(row) {
                         if let Some(mission) = ruleset.missions.get(*mid) {
                             // Accept this contract — credit the advance to funds.
-                            let already_accepted = game.game_state.current_mission
+                            let already_accepted = game
+                                .game_state
+                                .current_mission
                                 .as_ref()
                                 .map(|m| m.name == **mid)
                                 .unwrap_or(false);
@@ -1057,14 +1127,13 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
                                 // If switching contracts, no refund on old advance.
                                 let advance = mission.contract.advance;
                                 game.game_state.funds += advance as i64;
-                                game.game_state.current_mission = Some(
-                                    ow_core::game_state::MissionContext {
+                                game.game_state.current_mission =
+                                    Some(ow_core::game_state::MissionContext {
                                         name: mid.to_string(),
                                         weather: ow_core::weather::Weather::Clear,
                                         combat: None,
                                         turn_number: 0,
-                                    }
-                                );
+                                    });
                                 info!(mission = %mid, advance = advance,
                                       funds = game.game_state.funds, "Contract accepted!");
                             }
@@ -1091,7 +1160,11 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
 
                     if let Some(weapon) = sorted_weapons.get(row) {
                         // Check if there's an unarmed merc to assign to.
-                        let unarmed_idx = game.game_state.team.iter().position(|m| m.inventory.is_empty());
+                        let unarmed_idx = game
+                            .game_state
+                            .team
+                            .iter()
+                            .position(|m| m.inventory.is_empty());
 
                         if let Some(idx) = unarmed_idx {
                             // Check funds.
@@ -1106,7 +1179,7 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
                                     ow_core::merc::InventoryItem {
                                         name: weapon.name.clone(),
                                         encumbrance: weapon.encumbrance,
-                                    }
+                                    },
                                 );
                                 info!(weapon = %weapon.name, cost = weapon.cost,
                                       merc = %merc_name,
@@ -1139,7 +1212,13 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
             // what the player visually sees and can click comfortably.
             let sx = (*x as f32 * 640.0 / ww as f32) as i32;
             let sy = (*y as f32 * 480.0 / wh as f32) as i32;
-            info!(window_x = x, window_y = y, game_x = sx, game_y = sy, "Office click");
+            info!(
+                window_x = x,
+                window_y = y,
+                game_x = sx,
+                game_y = sy,
+                "Office click"
+            );
 
             // Coordinates measured from 640x480 grid overlay on OFFPIC2.PCX.
             let action = if check_hit(*x, *y, 400, 340, 520, 430, ww, wh) {
@@ -1188,7 +1267,9 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
         }
 
         // Keyboard shortcuts still work as fallback.
-        Event::KeyDown { keycode: Some(key), .. } => {
+        Event::KeyDown {
+            keycode: Some(key), ..
+        } => {
             let new_sub = match *key {
                 // ESC returns to the overview (office desk scene).
                 Keycode::Escape => {
@@ -1215,8 +1296,8 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
                     for merc in &mut game.game_state.team {
                         for item in merc.inventory.drain(..) {
                             // Look up the weapon cost for refund.
-                            if let Some(weapon) = ruleset.weapons.values()
-                                .find(|w| w.name == item.name)
+                            if let Some(weapon) =
+                                ruleset.weapons.values().find(|w| w.name == item.name)
                             {
                                 total_refund += weapon.cost as i64;
                                 info!(weapon = %item.name, refund = weapon.cost,
@@ -1229,8 +1310,11 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
                     }
                     if total_refund > 0 {
                         game.game_state.funds += total_refund;
-                        info!(total_refund, funds = game.game_state.funds,
-                              "All weapons returned — funds refunded");
+                        info!(
+                            total_refund,
+                            funds = game.game_state.funds,
+                            "All weapons returned — funds refunded"
+                        );
                     } else {
                         info!("No weapons to return");
                     }
@@ -1278,10 +1362,20 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
 fn handle_deployment_input(game: &mut GameLoop, event: &Event) {
     match event {
         // WASD / Arrow keys: scroll the camera around the map.
-        Event::KeyDown { keycode: Some(key), .. } if matches!(*key,
-            Keycode::W | Keycode::A | Keycode::S | Keycode::D |
-            Keycode::Up | Keycode::Down | Keycode::Left | Keycode::Right
-        ) => {
+        Event::KeyDown {
+            keycode: Some(key), ..
+        } if matches!(
+            *key,
+            Keycode::W
+                | Keycode::A
+                | Keycode::S
+                | Keycode::D
+                | Keycode::Up
+                | Keycode::Down
+                | Keycode::Left
+                | Keycode::Right
+        ) =>
+        {
             let speed = 32.0;
             match *key {
                 Keycode::W | Keycode::Up => game.camera.scroll(0.0, -speed),
@@ -1293,18 +1387,30 @@ fn handle_deployment_input(game: &mut GameLoop, event: &Event) {
         }
 
         // +/- zoom
-        Event::KeyDown { keycode: Some(Keycode::Equals), .. } |
-        Event::KeyDown { keycode: Some(Keycode::Plus), .. } => {
+        Event::KeyDown {
+            keycode: Some(Keycode::Equals),
+            ..
+        }
+        | Event::KeyDown {
+            keycode: Some(Keycode::Plus),
+            ..
+        } => {
             game.camera.zoom_in();
         }
-        Event::KeyDown { keycode: Some(Keycode::Minus), .. } => {
+        Event::KeyDown {
+            keycode: Some(Keycode::Minus),
+            ..
+        } => {
             game.camera.zoom_out();
         }
 
         // Mouse wheel zoom
         Event::MouseWheel { y, .. } => {
-            if *y > 0 { game.camera.zoom_in(); }
-            else if *y < 0 { game.camera.zoom_out(); }
+            if *y > 0 {
+                game.camera.zoom_in();
+            } else if *y < 0 {
+                game.camera.zoom_out();
+            }
         }
 
         // Tab: cycle to next merc for placement
@@ -1530,16 +1636,21 @@ fn handle_combat_input(game: &mut GameLoop, event: &Event) {
                 // Check if an enemy is at or near the clicked tile.
                 // If so, shoot them. Otherwise, move there.
                 let enemy_idx = game.enemies.iter().position(|e| {
-                    e.current_hp > 0 && e.position.map(|p| {
-                        // Click within 2 tiles of an enemy = target them
-                        (p.x - target_tile.x).abs() <= 2 && (p.y - target_tile.y).abs() <= 2
-                    }).unwrap_or(false)
+                    e.current_hp > 0
+                        && e.position
+                            .map(|p| {
+                                // Click within 2 tiles of an enemy = target them
+                                (p.x - target_tile.x).abs() <= 2 && (p.y - target_tile.y).abs() <= 2
+                            })
+                            .unwrap_or(false)
                 });
 
                 if let Some(eidx) = enemy_idx {
                     // SHOOT — deal damage to the enemy!
                     let attacker = game.game_state.team.iter().find(|m| m.id == unit_id);
-                    let attacker_name = attacker.map(|m| m.name.clone()).unwrap_or_else(|| format!("Unit_{unit_id}"));
+                    let attacker_name = attacker
+                        .map(|m| m.name.clone())
+                        .unwrap_or_else(|| format!("Unit_{unit_id}"));
                     let wsk = attacker.map(|m| m.wsk).unwrap_or(50);
 
                     // Simple hit chance based on weapon skill.
@@ -1568,7 +1679,9 @@ fn handle_combat_input(game: &mut GameLoop, event: &Event) {
                         );
 
                         // Deduct AP for shooting
-                        if let Some(merc) = game.game_state.team.iter_mut().find(|m| m.id == unit_id) {
+                        if let Some(merc) =
+                            game.game_state.team.iter_mut().find(|m| m.id == unit_id)
+                        {
                             merc.current_ap = merc.current_ap.saturating_sub(8);
                         }
 
@@ -1581,8 +1694,7 @@ fn handle_combat_input(game: &mut GameLoop, event: &Event) {
                             );
                         } else {
                             log_msg = (
-                                format!("{attacker_name} hits {} for {damage} damage!",
-                                        enemy.name),
+                                format!("{attacker_name} hits {} for {damage} damage!", enemy.name),
                                 CombatLogKind::PlayerHit,
                             );
                         }
@@ -1599,7 +1711,9 @@ fn handle_combat_input(game: &mut GameLoop, event: &Event) {
                             CombatLogKind::Miss,
                         );
                         // Still costs AP to shoot
-                        if let Some(merc) = game.game_state.team.iter_mut().find(|m| m.id == unit_id) {
+                        if let Some(merc) =
+                            game.game_state.team.iter_mut().find(|m| m.id == unit_id)
+                        {
                             merc.current_ap = merc.current_ap.saturating_sub(8);
                         }
                     }
@@ -1837,7 +1951,10 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
                 //
                 // We collect snapshot data (name, position, wsk) to avoid
                 // holding borrows across log_combat / advance_initiative calls.
-                let enemy_snapshot = game.enemies.iter().find(|e| e.id == id)
+                let enemy_snapshot = game
+                    .enemies
+                    .iter()
+                    .find(|e| e.id == id)
                     .map(|e| (e.name.clone(), e.current_hp, e.position, e.wsk));
 
                 if let Some((enemy_name, enemy_hp, enemy_pos_opt, enemy_wsk)) = enemy_snapshot {
@@ -1846,7 +1963,10 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
                         advance_initiative(game);
                     } else if let Some(enemy_pos) = enemy_pos_opt {
                         // Find nearest living player merc
-                        let nearest_merc = game.game_state.team.iter()
+                        let nearest_merc = game
+                            .game_state
+                            .team
+                            .iter()
                             .filter(|m| m.is_alive() && m.position.is_some())
                             .min_by_key(|m| {
                                 let mp = m.position.unwrap();
@@ -1866,8 +1986,8 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
 
                                 if roll < hit_chance {
                                     let damage = rng.gen_range(3..15);
-                                    if let Some(merc) = game.game_state.team.iter_mut()
-                                        .find(|m| m.id == target_id)
+                                    if let Some(merc) =
+                                        game.game_state.team.iter_mut().find(|m| m.id == target_id)
                                     {
                                         merc.current_hp = merc.current_hp.saturating_sub(damage);
                                         info!(
@@ -1889,9 +2009,11 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
                                     }
                                 } else {
                                     info!(enemy = %enemy_name, "Enemy MISSED!");
-                                    log_combat(game,
+                                    log_combat(
+                                        game,
                                         format!("{enemy_name} misses {target_name}!"),
-                                        CombatLogKind::Miss);
+                                        CombatLogKind::Miss,
+                                    );
                                 }
                             } else {
                                 // Too far — move toward the target
@@ -1904,9 +2026,11 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
                                 if let Some(e) = game.enemies.iter_mut().find(|e| e.id == id) {
                                     e.position = Some(new_pos);
                                 }
-                                log_combat(game,
+                                log_combat(
+                                    game,
                                     format!("{enemy_name} moves toward your team"),
-                                    CombatLogKind::Info);
+                                    CombatLogKind::Info,
+                                );
                             }
                         }
                         advance_initiative(game);
@@ -1935,24 +2059,32 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
     // -- Victory/defeat condition checks --
 
     // Defeat: all player mercs dead
-    let all_dead = !game.game_state.team.is_empty()
-        && game.game_state.team.iter().all(|m| !m.is_alive());
+    let all_dead =
+        !game.game_state.team.is_empty() && game.game_state.team.iter().all(|m| !m.is_alive());
 
     if all_dead {
         warn!("All player mercs killed -- mission failed");
-        log_combat(game, "ALL MERCS DOWN -- MISSION FAILED!".to_string(), CombatLogKind::Kill);
+        log_combat(
+            game,
+            "ALL MERCS DOWN -- MISSION FAILED!".to_string(),
+            CombatLogKind::Kill,
+        );
         game.game_state.set_phase(GamePhase::Debrief);
         game.phase_handler = PhaseHandler::Debrief { success: false };
         return;
     }
 
     // Victory: all enemies eliminated — transition to extraction then debrief.
-    let all_enemies_dead = !game.enemies.is_empty()
-        && game.enemies.iter().all(|e| e.current_hp == 0);
+    let all_enemies_dead =
+        !game.enemies.is_empty() && game.enemies.iter().all(|e| e.current_hp == 0);
 
     if all_enemies_dead {
         info!("All enemies eliminated — MISSION COMPLETE!");
-        log_combat(game, "All enemies eliminated -- MISSION COMPLETE!".to_string(), CombatLogKind::Kill);
+        log_combat(
+            game,
+            "All enemies eliminated -- MISSION COMPLETE!".to_string(),
+            CombatLogKind::Kill,
+        );
         // Credit the mission bonus to funds.
         if let Some(ref mission_ctx) = game.game_state.current_mission {
             info!(mission = %mission_ctx.name, "Mission successful, transitioning to debrief");
@@ -1962,14 +2094,21 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
         // Credit bonus from the contract.
         // The advance was already credited when the contract was accepted.
         // Now add the completion bonus.
-        let mission_key = game.game_state.current_mission.as_ref()
+        let mission_key = game
+            .game_state
+            .current_mission
+            .as_ref()
             .map(|m| m.name.clone())
             .unwrap_or_default();
         // We don't have the ruleset here, so we'll add a flat bonus for now.
         // TODO: Look up actual bonus from ruleset.
         let bonus = 200_000i64;
         game.game_state.funds += bonus;
-        info!(bonus, total_funds = game.game_state.funds, "Mission bonus credited");
+        info!(
+            bonus,
+            total_funds = game.game_state.funds,
+            "Mission bonus credited"
+        );
 
         game.game_state.set_phase(GamePhase::Debrief);
         game.phase_handler = PhaseHandler::Debrief { success: true };
@@ -1995,15 +2134,37 @@ fn render_phase(
     obj_renderer: &Option<ow_render::tile_renderer::TileMapRenderer>,
     loaded_map: &Option<ow_data::map_loader::GameMap>,
     mission_iso: &Option<IsoConfig>,
-    ) {
+) {
     match &game.phase_handler {
-        PhaseHandler::Office { sub_phase } => render_office(game, canvas, *sub_phase, text, tc, ruleset, office_bg),
+        PhaseHandler::Office { sub_phase } => {
+            render_office(game, canvas, *sub_phase, text, tc, ruleset, office_bg)
+        }
         PhaseHandler::Travel { elapsed_ms } => render_travel(canvas, *elapsed_ms, text, tc),
         PhaseHandler::Deployment { .. } => {
-            render_mission_map(game, canvas, tile_renderer, obj_renderer, loaded_map, mission_iso, text, tc, &game.enemies);
+            render_mission_map(
+                game,
+                canvas,
+                tile_renderer,
+                obj_renderer,
+                loaded_map,
+                mission_iso,
+                text,
+                tc,
+                &game.enemies,
+            );
         }
         PhaseHandler::Combat(_) => {
-            render_mission_map(game, canvas, tile_renderer, obj_renderer, loaded_map, mission_iso, text, tc, &game.enemies);
+            render_mission_map(
+                game,
+                canvas,
+                tile_renderer,
+                obj_renderer,
+                loaded_map,
+                mission_iso,
+                text,
+                tc,
+                &game.enemies,
+            );
         }
         PhaseHandler::Extraction => render_extraction(game, canvas),
         PhaseHandler::Debrief { success } => render_debrief(game, canvas, *success, text, tc),
@@ -2028,7 +2189,9 @@ fn render_office(
     ruleset: &Ruleset,
     office_bg: &Option<Texture>,
 ) {
-    let (w, h) = canvas.output_size().unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
+    let (w, h) = canvas
+        .output_size()
+        .unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
 
     // -- For the Overview tab, render the original OFFICE.PCX background --
     // This is the iconic desk scene the player sees when the game starts.
@@ -2047,12 +2210,30 @@ fn render_office(
             canvas.fill_rect(Rect::new(0, (h - 55) as i32, w, 55)).ok();
             canvas.set_blend_mode(sdl2::render::BlendMode::None);
 
-            let funds_text = format!("Funds: ${:>12}  |  Team: {}/8  |  Missions: {}",
-                game.game_state.funds, game.game_state.team.len(), game.game_state.missions_completed);
-            text.draw(canvas, tc, &funds_text, 15, (h - 45) as i32, Color::RGB(220, 220, 220)).ok();
-            text.draw_small(canvas, tc,
+            let funds_text = format!(
+                "Funds: ${:>12}  |  Team: {}/8  |  Missions: {}",
+                game.game_state.funds,
+                game.game_state.team.len(),
+                game.game_state.missions_completed
+            );
+            text.draw(
+                canvas,
+                tc,
+                &funds_text,
+                15,
+                (h - 45) as i32,
+                Color::RGB(220, 220, 220),
+            )
+            .ok();
+            text.draw_small(
+                canvas,
+                tc,
                 "1:Hire  2:Equip  3:Intel  4:Contracts  5:Train  |  B:Begin Mission  |  ESC:Quit",
-                15, (h - 22) as i32, Color::RGB(160, 160, 180)).ok();
+                15,
+                (h - 22) as i32,
+                Color::RGB(160, 160, 180),
+            )
+            .ok();
 
             // DEBUG: Draw labeled hotspot overlays so we can see where the
             // click regions are and fix them. Remove this once hotspots are correct.
@@ -2065,26 +2246,66 @@ fn render_office(
             let ww = game.window_width as f32;
             let wh = game.window_height as f32;
             canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
-            let hotspots: &[((i32,i32,i32,i32), &str, Color)] = &[
-                ((400,340,520,430), "HIRE (Phone)", Color::RGBA(255,50,50,100)),
-                ((480,230,560,310), "CONTRACTS (Fax)", Color::RGBA(50,50,255,100)),
-                ((490,50,620,190), "INTEL (Map)", Color::RGBA(255,255,50,100)),
-                ((70,170,130,370), "FILES (Cabinet)", Color::RGBA(50,255,50,100)),
-                ((100,360,220,430), "EQUIP (Mags)", Color::RGBA(50,255,50,100)),
-                ((230,330,310,380), "TRAIN (Calc)", Color::RGBA(255,50,255,100)),
-                ((240,40,370,250), "MISSION (Door)", Color::RGBA(255,150,0,100)),
+            let hotspots: &[((i32, i32, i32, i32), &str, Color)] = &[
+                (
+                    (400, 340, 520, 430),
+                    "HIRE (Phone)",
+                    Color::RGBA(255, 50, 50, 100),
+                ),
+                (
+                    (480, 230, 560, 310),
+                    "CONTRACTS (Fax)",
+                    Color::RGBA(50, 50, 255, 100),
+                ),
+                (
+                    (490, 50, 620, 190),
+                    "INTEL (Map)",
+                    Color::RGBA(255, 255, 50, 100),
+                ),
+                (
+                    (70, 170, 130, 370),
+                    "FILES (Cabinet)",
+                    Color::RGBA(50, 255, 50, 100),
+                ),
+                (
+                    (100, 360, 220, 430),
+                    "EQUIP (Mags)",
+                    Color::RGBA(50, 255, 50, 100),
+                ),
+                (
+                    (230, 330, 310, 380),
+                    "TRAIN (Calc)",
+                    Color::RGBA(255, 50, 255, 100),
+                ),
+                (
+                    (240, 40, 370, 250),
+                    "MISSION (Door)",
+                    Color::RGBA(255, 150, 0, 100),
+                ),
             ];
-            for &((x1,y1,x2,y2), label, color) in hotspots {
+            for &((x1, y1, x2, y2), label, color) in hotspots {
                 // Scale 640x480 → window size. Uses same math as check_hit (inverse).
                 let sx1 = (x1 as f32 * ww / 640.0) as i32;
                 let sy1 = (y1 as f32 * wh / 480.0) as i32;
                 let sx2 = (x2 as f32 * ww / 640.0) as i32;
                 let sy2 = (y2 as f32 * wh / 480.0) as i32;
                 canvas.set_draw_color(color);
-                canvas.fill_rect(Rect::new(sx1, sy1, (sx2-sx1) as u32, (sy2-sy1) as u32)).ok();
-                canvas.set_draw_color(Color::RGB(255,255,255));
-                canvas.draw_rect(Rect::new(sx1, sy1, (sx2-sx1) as u32, (sy2-sy1) as u32)).ok();
-                text.draw_small(canvas, tc, label, sx1+4, sy1+4, Color::RGB(255,255,255)).ok();
+                canvas
+                    .fill_rect(Rect::new(sx1, sy1, (sx2 - sx1) as u32, (sy2 - sy1) as u32))
+                    .ok();
+                canvas.set_draw_color(Color::RGB(255, 255, 255));
+                canvas
+                    .draw_rect(Rect::new(sx1, sy1, (sx2 - sx1) as u32, (sy2 - sy1) as u32))
+                    .ok();
+                text.draw_small(
+                    canvas,
+                    tc,
+                    label,
+                    sx1 + 4,
+                    sy1 + 4,
+                    Color::RGB(255, 255, 255),
+                )
+                .ok();
             }
             canvas.set_blend_mode(sdl2::render::BlendMode::None);
 
@@ -2097,15 +2318,30 @@ fn render_office(
     // -- Status bar at bottom: shows funds and team size --
     canvas.set_draw_color(Color::RGB(20, 20, 30));
     canvas.fill_rect(Rect::new(0, (h - 50) as i32, w, 50)).ok();
-    let funds_text = format!("Funds: ${:>12}  |  Team: {}/8  |  Missions: {}",
-        game.game_state.funds, game.game_state.team.len(), game.game_state.missions_completed);
-    text.draw(canvas, tc, &funds_text, 15, (h - 35) as i32, Color::RGB(200, 200, 200)).ok();
+    let funds_text = format!(
+        "Funds: ${:>12}  |  Team: {}/8  |  Missions: {}",
+        game.game_state.funds,
+        game.game_state.team.len(),
+        game.game_state.missions_completed
+    );
+    text.draw(
+        canvas,
+        tc,
+        &funds_text,
+        15,
+        (h - 35) as i32,
+        Color::RGB(200, 200, 200),
+    )
+    .ok();
 
     // -- Sub-phase tab bar along the top --
     let tab_names = ["1:Hire", "2:Equip", "3:Intel", "4:Contracts", "5:Train"];
     let sub_phases = [
-        OfficePhase::HireMercs, OfficePhase::Equipment,
-        OfficePhase::Intel, OfficePhase::Contracts, OfficePhase::Training,
+        OfficePhase::HireMercs,
+        OfficePhase::Equipment,
+        OfficePhase::Intel,
+        OfficePhase::Contracts,
+        OfficePhase::Training,
     ];
 
     // Tab background
@@ -2113,13 +2349,29 @@ fn render_office(
     canvas.fill_rect(Rect::new(0, 0, w, 35)).ok();
 
     // Back to office button
-    text.draw_small(canvas, tc, "[ESC] Office", 10, 10, Color::RGB(140, 140, 160)).ok();
+    text.draw_small(
+        canvas,
+        tc,
+        "[ESC] Office",
+        10,
+        10,
+        Color::RGB(140, 140, 160),
+    )
+    .ok();
 
     for (i, (sp, name)) in sub_phases.iter().zip(tab_names.iter()).enumerate() {
         let x = 130 + (i as i32) * 130;
         let active = *sp == active_sub;
-        let bg = if active { Color::RGB(60, 60, 100) } else { Color::RGB(30, 30, 45) };
-        let fg = if active { Color::RGB(255, 255, 200) } else { Color::RGB(140, 140, 140) };
+        let bg = if active {
+            Color::RGB(60, 60, 100)
+        } else {
+            Color::RGB(30, 30, 45)
+        };
+        let fg = if active {
+            Color::RGB(255, 255, 200)
+        } else {
+            Color::RGB(140, 140, 140)
+        };
         canvas.set_draw_color(bg);
         canvas.fill_rect(Rect::new(x, 5, 120, 25)).ok();
         text.draw_small(canvas, tc, name, x + 8, 10, fg).ok();
@@ -2134,7 +2386,15 @@ fn render_office(
             // Handled above with the background image.
         }
         OfficePhase::HireMercs => {
-            text.draw_header(canvas, tc, "Mercenary Roster", 20, content_y, Color::RGB(220, 200, 100)).ok();
+            text.draw_header(
+                canvas,
+                tc,
+                "Mercenary Roster",
+                20,
+                content_y,
+                Color::RGB(220, 200, 100),
+            )
+            .ok();
 
             // List available mercs from the ruleset, scrollable
             let mut y = content_y + 35;
@@ -2153,7 +2413,13 @@ fn render_office(
                     Color::RGB(100, 100, 100) // gray = unavailable
                 };
 
-                let status_tag = if hired { "[HIRED]" } else if merc.avail == 0 { "[N/A]" } else { "" };
+                let status_tag = if hired {
+                    "[HIRED]"
+                } else if merc.avail == 0 {
+                    "[N/A]"
+                } else {
+                    ""
+                };
                 let line = format!(
                     "{:<25} RAT:{:>3}  EXP:{:>3}  WSK:{:>3}  AGL:{:>3}  Hire:${:>7}  {}",
                     merc.name, merc.rating, merc.exp, merc.wsk, merc.agl, merc.fee_hire, status_tag
@@ -2161,25 +2427,54 @@ fn render_office(
                 text.draw_small(canvas, tc, &line, 20, y, status_color).ok();
                 y += 16;
                 count += 1;
-                if y > (content_y + content_h - 20) { break; }
+                if y > (content_y + content_h - 20) {
+                    break;
+                }
             }
 
-            text.draw_small(canvas, tc,
-                &format!("Showing {count}/{} mercs (sorted by rating)", ruleset.mercs.len()),
-                20, content_y + content_h, Color::RGB(100, 100, 100),
-            ).ok();
+            text.draw_small(
+                canvas,
+                tc,
+                &format!(
+                    "Showing {count}/{} mercs (sorted by rating)",
+                    ruleset.mercs.len()
+                ),
+                20,
+                content_y + content_h,
+                Color::RGB(100, 100, 100),
+            )
+            .ok();
         }
         OfficePhase::Equipment => {
-            text.draw_header(canvas, tc, "Equipment Catalog — Click weapon to lease", 20, content_y, Color::RGB(220, 200, 100)).ok();
+            text.draw_header(
+                canvas,
+                tc,
+                "Equipment Catalog — Click weapon to lease",
+                20,
+                content_y,
+                Color::RGB(220, 200, 100),
+            )
+            .ok();
 
             // Left pane: weapon list (clickable)
             let mut y = content_y + 35;
-            text.draw(canvas, tc, "--- AVAILABLE WEAPONS ---", 20, y, Color::RGB(180, 140, 80)).ok();
+            text.draw(
+                canvas,
+                tc,
+                "--- AVAILABLE WEAPONS ---",
+                20,
+                y,
+                Color::RGB(180, 140, 80),
+            )
+            .ok();
             y += 20;
             let mut sorted_weapons: Vec<_> = ruleset.weapons.values().collect();
             sorted_weapons.sort_by_key(|w| format!("{:?}", w.weapon_type));
             // Collect names of all currently leased weapons for highlighting.
-            let leased_names: Vec<String> = game.game_state.team.iter()
+            let leased_names: Vec<String> = game
+                .game_state
+                .team
+                .iter()
                 .flat_map(|m| m.inventory.iter().map(|i| i.name.clone()))
                 .collect();
 
@@ -2204,24 +2499,47 @@ fn render_office(
                 );
                 text.draw_small(canvas, tc, &line, 20, y, color).ok();
                 y += 14;
-                if y > (content_y + content_h - 40) { break; }
+                if y > (content_y + content_h - 40) {
+                    break;
+                }
             }
 
             // Right pane: your team with their equipment
             let team_x = (w / 2) as i32 + 20;
             let mut ty = content_y + 35;
-            text.draw(canvas, tc, "--- YOUR TEAM ---", team_x, ty, Color::RGB(100, 180, 100)).ok();
+            text.draw(
+                canvas,
+                tc,
+                "--- YOUR TEAM ---",
+                team_x,
+                ty,
+                Color::RGB(100, 180, 100),
+            )
+            .ok();
             ty += 20;
             if game.game_state.team.is_empty() {
-                text.draw_small(canvas, tc, "No mercs hired yet", team_x, ty, Color::RGB(140, 140, 140)).ok();
+                text.draw_small(
+                    canvas,
+                    tc,
+                    "No mercs hired yet",
+                    team_x,
+                    ty,
+                    Color::RGB(140, 140, 140),
+                )
+                .ok();
             } else {
                 for merc in &game.game_state.team {
                     let equip_info = if merc.inventory.is_empty() {
                         "  [UNARMED]".to_string()
                     } else {
-                        format!("  [{}]", merc.inventory.iter()
-                            .map(|i| i.name.as_str())
-                            .collect::<Vec<_>>().join(", "))
+                        format!(
+                            "  [{}]",
+                            merc.inventory
+                                .iter()
+                                .map(|i| i.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
                     };
                     let line = format!("{}{}", merc.name, equip_info);
                     let color = if merc.inventory.is_empty() {
@@ -2235,25 +2553,55 @@ fn render_office(
             }
 
             // Equipment instructions
-            let armed_count = game.game_state.team.iter().filter(|m| !m.inventory.is_empty()).count();
+            let armed_count = game
+                .game_state
+                .team
+                .iter()
+                .filter(|m| !m.inventory.is_empty())
+                .count();
             let team_count = game.game_state.team.len();
             let equip_status = format!(
                 "Click weapon to lease → assigned to first unarmed merc  |  U: Return all weapons  |  Armed: {}/{}",
                 armed_count, team_count
             );
-            text.draw_small(canvas, tc, &equip_status,
-                20, content_y + content_h,
-                Color::RGB(140, 140, 100)).ok();
+            text.draw_small(
+                canvas,
+                tc,
+                &equip_status,
+                20,
+                content_y + content_h,
+                Color::RGB(140, 140, 100),
+            )
+            .ok();
         }
         OfficePhase::Contracts => {
-            text.draw_header(canvas, tc, "Available Contracts — Click to Accept", 20, content_y, Color::RGB(220, 200, 100)).ok();
+            text.draw_header(
+                canvas,
+                tc,
+                "Available Contracts — Click to Accept",
+                20,
+                content_y,
+                Color::RGB(220, 200, 100),
+            )
+            .ok();
             let mut y = content_y + 35;
 
             // Show which contract is currently accepted, if any.
-            let accepted_id = game.game_state.current_mission.as_ref().map(|m| m.name.clone());
+            let accepted_id = game
+                .game_state
+                .current_mission
+                .as_ref()
+                .map(|m| m.name.clone());
             if let Some(ref aid) = accepted_id {
-                text.draw(canvas, tc, &format!("ACCEPTED: {} — Press B or click door to deploy!", aid),
-                    20, y, Color::RGB(100, 255, 100)).ok();
+                text.draw(
+                    canvas,
+                    tc,
+                    &format!("ACCEPTED: {} — Press B or click door to deploy!", aid),
+                    20,
+                    y,
+                    Color::RGB(100, 255, 100),
+                )
+                .ok();
                 y += 22;
             }
 
@@ -2281,21 +2629,39 @@ fn render_office(
                     );
                     text.draw_small(canvas, tc, &line, 20, y, color).ok();
                     y += 18;
-                    if y > (content_y + content_h - 20) { break; }
+                    if y > (content_y + content_h - 20) {
+                        break;
+                    }
                 }
             }
         }
         _ => {
             // Intel, Training — placeholder for now
             let label = format!("{:?}", active_sub);
-            text.draw_header(canvas, tc, &label, 20, content_y, Color::RGB(220, 200, 100)).ok();
-            text.draw(canvas, tc, "Coming soon...", 20, content_y + 35, Color::RGB(140, 140, 140)).ok();
+            text.draw_header(canvas, tc, &label, 20, content_y, Color::RGB(220, 200, 100))
+                .ok();
+            text.draw(
+                canvas,
+                tc,
+                "Coming soon...",
+                20,
+                content_y + 35,
+                Color::RGB(140, 140, 140),
+            )
+            .ok();
         }
     }
 
     // -- Help text --
-    text.draw_small(canvas, tc, "ESC: Pause  |  B: Begin Mission",
-        (w - 280) as i32, (h - 35) as i32, Color::RGB(100, 100, 120)).ok();
+    text.draw_small(
+        canvas,
+        tc,
+        "ESC: Pause  |  B: Begin Mission",
+        (w - 280) as i32,
+        (h - 35) as i32,
+        Color::RGB(100, 100, 120),
+    )
+    .ok();
 }
 
 // ---------------------------------------------------------------------------
@@ -2303,8 +2669,15 @@ fn render_office(
 // ---------------------------------------------------------------------------
 
 /// Render the travel screen — a simple progress bar.
-fn render_travel(canvas: &mut Canvas<Window>, elapsed_ms: u32, _text: &TextRenderer, _tc: &TextureCreator<WindowContext>) {
-    let (w, h) = canvas.output_size().unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
+fn render_travel(
+    canvas: &mut Canvas<Window>,
+    elapsed_ms: u32,
+    _text: &TextRenderer,
+    _tc: &TextureCreator<WindowContext>,
+) {
+    let (w, h) = canvas
+        .output_size()
+        .unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
     let progress = (elapsed_ms as f32 / 2000.0).min(1.0);
     let bar_width = (w as f32 * 0.6) as u32;
     let bar_x = ((w - bar_width) / 2) as i32;
@@ -2380,10 +2753,14 @@ fn render_mission_map(
                         Some(t) => t,
                         None => continue,
                     };
-                    if tile.is_border { continue; }
+                    if tile.is_border {
+                        continue;
+                    }
 
                     for overlay_layer in [tile.layer1, tile.layer2] {
-                        if overlay_layer < OBJ_OVERLAY_THRESHOLD { continue; }
+                        if overlay_layer < OBJ_OVERLAY_THRESHOLD {
+                            continue;
+                        }
 
                         let obj_idx = (overlay_layer - OBJ_OVERLAY_THRESHOLD) as usize;
                         let obj_tex = match or.get_texture(obj_idx) {
@@ -2430,7 +2807,9 @@ fn render_mission_map(
     };
 
     for merc in &game.game_state.team {
-        if !merc.is_alive() { continue; }
+        if !merc.is_alive() {
+            continue;
+        }
         if let Some(pos) = merc.position {
             let iso_tile = TilePos { x: pos.x, y: pos.y };
             let world = iso.tile_to_screen(iso_tile);
@@ -2440,44 +2819,52 @@ fn render_mission_map(
             let color = if is_selected {
                 Color::RGB(255, 255, 0) // Yellow = selected unit
             } else {
-                Color::RGB(0, 220, 0)   // Green = your mercs
+                Color::RGB(0, 220, 0) // Green = your mercs
             };
 
             // Draw a small filled square for each merc
             canvas.set_draw_color(color);
-            canvas.fill_rect(Rect::new(
-                screen.x as i32 - 6, screen.y as i32 - 6, 12, 12,
-            )).ok();
+            canvas
+                .fill_rect(Rect::new(screen.x as i32 - 6, screen.y as i32 - 6, 12, 12))
+                .ok();
 
             // Draw a dark border for visibility
             canvas.set_draw_color(Color::RGB(0, 0, 0));
-            canvas.draw_rect(Rect::new(
-                screen.x as i32 - 6, screen.y as i32 - 6, 12, 12,
-            )).ok();
+            canvas
+                .draw_rect(Rect::new(screen.x as i32 - 6, screen.y as i32 - 6, 12, 12))
+                .ok();
         }
     }
 
     // Draw enemy units — fog of war hides enemies beyond 20 tiles from all mercs.
     let fow_range = 20i32;
     for enemy in enemies {
-        if enemy.current_hp == 0 { continue; }
+        if enemy.current_hp == 0 {
+            continue;
+        }
         if let Some(pos) = enemy.position {
-            let seen = game.game_state.team.iter().any(|m| m.is_alive()
-                && m.position.map(|mp| (mp.x-pos.x).abs()+(mp.y-pos.y).abs() <= fow_range).unwrap_or(false));
-            if !seen { continue; }
+            let seen = game.game_state.team.iter().any(|m| {
+                m.is_alive()
+                    && m.position
+                        .map(|mp| (mp.x - pos.x).abs() + (mp.y - pos.y).abs() <= fow_range)
+                        .unwrap_or(false)
+            });
+            if !seen {
+                continue;
+            }
             let iso_tile = TilePos { x: pos.x, y: pos.y };
             let world = iso.tile_to_screen(iso_tile);
             let screen = game.camera.world_to_screen(world);
 
             // Red for enemies
             canvas.set_draw_color(Color::RGB(220, 30, 30));
-            canvas.fill_rect(Rect::new(
-                screen.x as i32 - 5, screen.y as i32 - 5, 10, 10,
-            )).ok();
+            canvas
+                .fill_rect(Rect::new(screen.x as i32 - 5, screen.y as i32 - 5, 10, 10))
+                .ok();
             canvas.set_draw_color(Color::RGB(0, 0, 0));
-            canvas.draw_rect(Rect::new(
-                screen.x as i32 - 5, screen.y as i32 - 5, 10, 10,
-            )).ok();
+            canvas
+                .draw_rect(Rect::new(screen.x as i32 - 5, screen.y as i32 - 5, 10, 10))
+                .ok();
         }
     }
 
@@ -2500,41 +2887,81 @@ fn render_mission_map(
         canvas.set_blend_mode(sdl2::render::BlendMode::None);
 
         if is_ai {
-            _text.draw(canvas, _tc, "ENEMY TURN",
-                banner_x + 10, 8, Color::RGB(220, 50, 50)).ok();
+            _text
+                .draw(
+                    canvas,
+                    _tc,
+                    "ENEMY TURN",
+                    banner_x + 10,
+                    8,
+                    Color::RGB(220, 50, 50),
+                )
+                .ok();
         } else {
-            _text.draw(canvas, _tc, "YOUR TURN",
-                banner_x + 10, 8, Color::RGB(50, 220, 50)).ok();
+            _text
+                .draw(
+                    canvas,
+                    _tc,
+                    "YOUR TURN",
+                    banner_x + 10,
+                    8,
+                    Color::RGB(50, 220, 50),
+                )
+                .ok();
         }
 
         // ---- Dark panel at bottom ----
         let panel_height: u32 = 80;
         canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
         canvas.set_draw_color(Color::RGBA(0, 0, 0, 200));
-        canvas.fill_rect(Rect::new(0, h as i32 - panel_height as i32, w, panel_height)).ok();
+        canvas
+            .fill_rect(Rect::new(
+                0,
+                h as i32 - panel_height as i32,
+                w,
+                panel_height,
+            ))
+            .ok();
         canvas.set_blend_mode(sdl2::render::BlendMode::None);
 
         // Thin top border on the panel
         canvas.set_draw_color(Color::RGB(80, 80, 80));
-        canvas.draw_line(
-            sdl2::rect::Point::new(0, h as i32 - panel_height as i32),
-            sdl2::rect::Point::new(w as i32, h as i32 - panel_height as i32),
-        ).ok();
+        canvas
+            .draw_line(
+                sdl2::rect::Point::new(0, h as i32 - panel_height as i32),
+                sdl2::rect::Point::new(w as i32, h as i32 - panel_height as i32),
+            )
+            .ok();
 
         // ---- Selected unit info (left side) ----
         if let Some(sel_id) = selected_id {
             if let Some(merc) = game.game_state.team.iter().find(|m| m.id == sel_id) {
                 let info = format!(
                     "{} | HP: {}/{} | AP: {}/{} | Tab=Next  Click=Move  E=EndTurn",
-                    merc.name, merc.current_hp, merc.max_hp,
-                    merc.current_ap, merc.base_aps,
+                    merc.name, merc.current_hp, merc.max_hp, merc.current_ap, merc.base_aps,
                 );
-                _text.draw(canvas, _tc, &info, 15, h as i32 - (panel_height as i32) + 10,
-                    Color::RGB(220, 220, 220)).ok();
+                _text
+                    .draw(
+                        canvas,
+                        _tc,
+                        &info,
+                        15,
+                        h as i32 - (panel_height as i32) + 10,
+                        Color::RGB(220, 220, 220),
+                    )
+                    .ok();
             }
         } else {
-            _text.draw(canvas, _tc, "No unit selected | Tab=Next  Enter=NextPhase",
-                15, h as i32 - (panel_height as i32) + 10, Color::RGB(180, 180, 180)).ok();
+            _text
+                .draw(
+                    canvas,
+                    _tc,
+                    "No unit selected | Tab=Next  Enter=NextPhase",
+                    15,
+                    h as i32 - (panel_height as i32) + 10,
+                    Color::RGB(180, 180, 180),
+                )
+                .ok();
         }
 
         // ---- Combat log (right side of bottom panel) ----
@@ -2546,7 +2973,9 @@ fn render_mission_map(
         for (i, entry) in game.combat_log.iter().enumerate() {
             let y_pos = log_start_y + (i as i32) * line_h;
             let color = entry.kind.color();
-            _text.draw_small(canvas, _tc, &entry.text, log_x, y_pos, color).ok();
+            _text
+                .draw_small(canvas, _tc, &entry.text, log_x, y_pos, color)
+                .ok();
         }
     }
 
@@ -2558,10 +2987,26 @@ fn render_mission_map(
         canvas.fill_rect(Rect::new(0, h as i32 - 40, w, 40)).ok();
         canvas.set_blend_mode(sdl2::render::BlendMode::None);
 
-        let placed = game.game_state.team.iter().filter(|m| m.position.is_some()).count();
+        let placed = game
+            .game_state
+            .team
+            .iter()
+            .filter(|m| m.position.is_some())
+            .count();
         let total = game.game_state.team.len();
-        let msg = format!("DEPLOYMENT: Click map to place mercs ({placed}/{total} placed) | Enter=Start Combat");
-        _text.draw(canvas, _tc, &msg, 15, h as i32 - 28, Color::RGB(220, 200, 100)).ok();
+        let msg = format!(
+            "DEPLOYMENT: Click map to place mercs ({placed}/{total} placed) | Enter=Start Combat"
+        );
+        _text
+            .draw(
+                canvas,
+                _tc,
+                &msg,
+                15,
+                h as i32 - 28,
+                Color::RGB(220, 200, 100),
+            )
+            .ok();
     }
 
     // -- Minimap: overview in the bottom-right corner --
@@ -2580,14 +3025,18 @@ fn render_mission_map(
         // Semi-transparent background
         canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
         canvas.set_draw_color(Color::RGBA(0, 0, 0, 180));
-        canvas.fill_rect(Rect::new(mm_x - 3, mm_y - 3, mm_w + 6, mm_h + 6)).ok();
+        canvas
+            .fill_rect(Rect::new(mm_x - 3, mm_y - 3, mm_w + 6, mm_h + 6))
+            .ok();
         canvas.set_blend_mode(sdl2::render::BlendMode::None);
 
         // Draw each tile as a colored pixel based on its sprite index.
         for ty in 0..map.active_rows() {
             for tx in 0..map.width() {
                 if let Some(tile) = map.get_tile(tx, ty) {
-                    if tile.is_border { continue; }
+                    if tile.is_border {
+                        continue;
+                    }
                     let sid = tile.layer0 as u32;
                     let color = if sid == 0 {
                         Color::RGB(25, 45, 20)
@@ -2603,9 +3052,9 @@ fn render_mission_map(
                         Color::RGB(40, 55, 75)
                     };
                     canvas.set_draw_color(color);
-                    canvas.draw_point(sdl2::rect::Point::new(
-                        mm_x + tx as i32, mm_y + ty as i32,
-                    )).ok();
+                    canvas
+                        .draw_point(sdl2::rect::Point::new(mm_x + tx as i32, mm_y + ty as i32))
+                        .ok();
                 }
             }
         }
@@ -2614,18 +3063,29 @@ fn render_mission_map(
         for merc in &game.game_state.team {
             if let Some(pos) = merc.position {
                 canvas.set_draw_color(Color::RGB(0, 255, 0));
-                canvas.fill_rect(Rect::new(
-                    mm_x + pos.x, mm_y + pos.y, 3, 3,
-                )).ok();
+                canvas
+                    .fill_rect(Rect::new(mm_x + pos.x, mm_y + pos.y, 3, 3))
+                    .ok();
             }
         }
 
         // Border
         canvas.set_draw_color(Color::RGB(120, 120, 120));
-        canvas.draw_rect(Rect::new(mm_x - 3, mm_y - 3, mm_w + 6, mm_h + 6)).ok();
+        canvas
+            .draw_rect(Rect::new(mm_x - 3, mm_y - 3, mm_w + 6, mm_h + 6))
+            .ok();
 
         // "MINIMAP" label
-        _text.draw_small(canvas, _tc, "MAP", mm_x, mm_y - 14, Color::RGB(180, 180, 180)).ok();
+        _text
+            .draw_small(
+                canvas,
+                _tc,
+                "MAP",
+                mm_x,
+                mm_y - 14,
+                Color::RGB(180, 180, 180),
+            )
+            .ok();
     }
 }
 
@@ -2635,10 +3095,7 @@ fn render_deployment(game: &GameLoop, canvas: &mut Canvas<Window>, selected_unit
     // Draw placed mercs as colored squares
     for (i, merc) in game.game_state.team.iter().enumerate() {
         if let Some(pos) = merc.position {
-            let iso_tile = TilePos {
-                x: pos.x,
-                y: pos.y,
-            };
+            let iso_tile = TilePos { x: pos.x, y: pos.y };
             let world = game.iso_config.tile_to_screen(iso_tile);
             let screen = game.camera.world_to_screen(world);
 
@@ -2677,10 +3134,7 @@ fn render_combat(game: &GameLoop, canvas: &mut Canvas<Window>, combat: &CombatHa
             continue;
         }
         if let Some(pos) = merc.position {
-            let iso_tile = TilePos {
-                x: pos.x,
-                y: pos.y,
-            };
+            let iso_tile = TilePos { x: pos.x, y: pos.y };
             let world = game.iso_config.tile_to_screen(iso_tile);
             let screen = game.camera.world_to_screen(world);
 
@@ -2725,7 +3179,9 @@ fn render_combat(game: &GameLoop, canvas: &mut Canvas<Window>, combat: &CombatHa
     // TODO: Draw enemy units from MissionState.enemy_units as red squares.
 
     // Turn indicator in top-right corner
-    let (w, _h) = canvas.output_size().unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
+    let (w, _h) = canvas
+        .output_size()
+        .unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
     let indicator_color = if combat.ai_acting {
         Color::RGB(200, 50, 50) // red = AI acting
     } else {
@@ -2765,10 +3221,7 @@ fn render_extraction(game: &GameLoop, canvas: &mut Canvas<Window>) {
             continue;
         }
         if let Some(pos) = merc.position {
-            let t = TilePos {
-                x: pos.x,
-                y: pos.y,
-            };
+            let t = TilePos { x: pos.x, y: pos.y };
             let w = game.iso_config.tile_to_screen(t);
             let s = game.camera.world_to_screen(w);
             canvas.set_draw_color(Color::RGB(0, 200, 0));
@@ -2789,17 +3242,34 @@ fn render_extraction(game: &GameLoop, canvas: &mut Canvas<Window>) {
 // ---------------------------------------------------------------------------
 
 /// Render the debrief screen: large result indicator + "press enter" prompt.
-fn render_debrief(game: &GameLoop, canvas: &mut Canvas<Window>, success: bool, text: &TextRenderer, tc: &TextureCreator<WindowContext>) {
-    let (w, h) = canvas.output_size().unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
+fn render_debrief(
+    game: &GameLoop,
+    canvas: &mut Canvas<Window>,
+    success: bool,
+    text: &TextRenderer,
+    tc: &TextureCreator<WindowContext>,
+) {
+    let (w, h) = canvas
+        .output_size()
+        .unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
 
     // Dark background
     canvas.set_draw_color(Color::RGB(15, 15, 25));
     canvas.clear();
 
     // Title
-    let title = if success { "MISSION COMPLETE" } else { "MISSION FAILED" };
-    let title_color = if success { Color::RGB(80, 255, 80) } else { Color::RGB(255, 80, 80) };
-    text.draw_header(canvas, tc, title, (w / 2 - 150) as i32, 100, title_color).ok();
+    let title = if success {
+        "MISSION COMPLETE"
+    } else {
+        "MISSION FAILED"
+    };
+    let title_color = if success {
+        Color::RGB(80, 255, 80)
+    } else {
+        Color::RGB(255, 80, 80)
+    };
+    text.draw_header(canvas, tc, title, (w / 2 - 150) as i32, 100, title_color)
+        .ok();
 
     // Stats
     let mut y = 180i32;
@@ -2809,21 +3279,69 @@ fn render_debrief(game: &GameLoop, canvas: &mut Canvas<Window>, success: bool, t
     let total_enemies = game.enemies.len();
 
     // -- Battle Results --
-    text.draw(canvas, tc, "BATTLE RESULTS", 200, y, Color::RGB(180, 180, 100)).ok();
+    text.draw(
+        canvas,
+        tc,
+        "BATTLE RESULTS",
+        200,
+        y,
+        Color::RGB(180, 180, 100),
+    )
+    .ok();
     y += 25;
-    text.draw(canvas, tc, &format!("  Mercs survived:      {survived}/{total}"), 200, y, Color::RGB(200, 200, 200)).ok();
+    text.draw(
+        canvas,
+        tc,
+        &format!("  Mercs survived:      {survived}/{total}"),
+        200,
+        y,
+        Color::RGB(200, 200, 200),
+    )
+    .ok();
     y += 20;
-    text.draw(canvas, tc, &format!("  Enemies eliminated:  {killed}/{total_enemies}"), 200, y, Color::RGB(200, 200, 200)).ok();
+    text.draw(
+        canvas,
+        tc,
+        &format!("  Enemies eliminated:  {killed}/{total_enemies}"),
+        200,
+        y,
+        Color::RGB(200, 200, 200),
+    )
+    .ok();
     y += 20;
 
     let kia = total - survived;
-    let wia = game.game_state.team.iter().filter(|m| m.is_alive() && m.current_hp < m.max_hp).count();
-    text.draw(canvas, tc, &format!("  KIA: {}  WIA: {}", kia, wia), 200, y,
-        if kia > 0 { Color::RGB(255, 100, 100) } else { Color::RGB(100, 200, 100) }).ok();
+    let wia = game
+        .game_state
+        .team
+        .iter()
+        .filter(|m| m.is_alive() && m.current_hp < m.max_hp)
+        .count();
+    text.draw(
+        canvas,
+        tc,
+        &format!("  KIA: {}  WIA: {}", kia, wia),
+        200,
+        y,
+        if kia > 0 {
+            Color::RGB(255, 100, 100)
+        } else {
+            Color::RGB(100, 200, 100)
+        },
+    )
+    .ok();
     y += 35;
 
     // -- Financial Report (the accountant's fax) --
-    text.draw(canvas, tc, "FINANCIAL REPORT", 200, y, Color::RGB(180, 180, 100)).ok();
+    text.draw(
+        canvas,
+        tc,
+        "FINANCIAL REPORT",
+        200,
+        y,
+        Color::RGB(180, 180, 100),
+    )
+    .ok();
     y += 25;
 
     let advance = 324_000i64; // TODO: get from accepted contract
@@ -2835,31 +3353,107 @@ fn render_debrief(game: &GameLoop, canvas: &mut Canvas<Window>, success: bool, t
     let total_expenses = hiring_costs + medical + death_insurance;
     let profit = total_income - total_expenses;
 
-    text.draw(canvas, tc, &format!("  Contract advance:    ${:>12}", advance), 200, y, Color::RGB(150, 200, 150)).ok();
+    text.draw(
+        canvas,
+        tc,
+        &format!("  Contract advance:    ${:>12}", advance),
+        200,
+        y,
+        Color::RGB(150, 200, 150),
+    )
+    .ok();
     y += 18;
     if success {
-        text.draw(canvas, tc, &format!("  Completion bonus:    ${:>12}", bonus), 200, y, Color::RGB(150, 200, 150)).ok();
+        text.draw(
+            canvas,
+            tc,
+            &format!("  Completion bonus:    ${:>12}", bonus),
+            200,
+            y,
+            Color::RGB(150, 200, 150),
+        )
+        .ok();
         y += 18;
     }
-    text.draw(canvas, tc, &format!("  Hiring costs:       -${:>12}", hiring_costs), 200, y, Color::RGB(200, 150, 150)).ok();
+    text.draw(
+        canvas,
+        tc,
+        &format!("  Hiring costs:       -${:>12}", hiring_costs),
+        200,
+        y,
+        Color::RGB(200, 150, 150),
+    )
+    .ok();
     y += 18;
     if medical > 0 {
-        text.draw(canvas, tc, &format!("  Medical (WIA):      -${:>12}", medical), 200, y, Color::RGB(200, 150, 150)).ok();
+        text.draw(
+            canvas,
+            tc,
+            &format!("  Medical (WIA):      -${:>12}", medical),
+            200,
+            y,
+            Color::RGB(200, 150, 150),
+        )
+        .ok();
         y += 18;
     }
     if death_insurance > 0 {
-        text.draw(canvas, tc, &format!("  Death insurance:    -${:>12}", death_insurance), 200, y, Color::RGB(255, 100, 100)).ok();
+        text.draw(
+            canvas,
+            tc,
+            &format!("  Death insurance:    -${:>12}", death_insurance),
+            200,
+            y,
+            Color::RGB(255, 100, 100),
+        )
+        .ok();
         y += 18;
     }
-    text.draw(canvas, tc, "  ─────────────────────────────", 200, y, Color::RGB(100, 100, 100)).ok();
+    text.draw(
+        canvas,
+        tc,
+        "  ─────────────────────────────",
+        200,
+        y,
+        Color::RGB(100, 100, 100),
+    )
+    .ok();
     y += 18;
-    let profit_color = if profit >= 0 { Color::RGB(100, 255, 100) } else { Color::RGB(255, 100, 100) };
-    text.draw(canvas, tc, &format!("  NET PROFIT:          ${:>12}", profit), 200, y, profit_color).ok();
+    let profit_color = if profit >= 0 {
+        Color::RGB(100, 255, 100)
+    } else {
+        Color::RGB(255, 100, 100)
+    };
+    text.draw(
+        canvas,
+        tc,
+        &format!("  NET PROFIT:          ${:>12}", profit),
+        200,
+        y,
+        profit_color,
+    )
+    .ok();
     y += 25;
-    text.draw(canvas, tc, &format!("  Current funds:       ${:>12}", game.game_state.funds), 200, y, Color::RGB(200, 200, 200)).ok();
+    text.draw(
+        canvas,
+        tc,
+        &format!("  Current funds:       ${:>12}", game.game_state.funds),
+        200,
+        y,
+        Color::RGB(200, 200, 200),
+    )
+    .ok();
     y += 35;
 
-    text.draw(canvas, tc, "Press ENTER to return to office", 200, y, Color::RGB(150, 150, 180)).ok();
+    text.draw(
+        canvas,
+        tc,
+        "Press ENTER to return to office",
+        200,
+        y,
+        Color::RGB(150, 150, 180),
+    )
+    .ok();
 }
 
 // ---------------------------------------------------------------------------
@@ -2867,14 +3461,18 @@ fn render_debrief(game: &GameLoop, canvas: &mut Canvas<Window>, success: bool, t
 // ---------------------------------------------------------------------------
 
 /// Render the pause overlay: dark fill + pause icon (two vertical bars).
-fn render_pause(canvas: &mut Canvas<Window>, _text: &TextRenderer, _tc: &TextureCreator<WindowContext>) {
-    let (w, h) = canvas.output_size().unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
+fn render_pause(
+    canvas: &mut Canvas<Window>,
+    _text: &TextRenderer,
+    _tc: &TextureCreator<WindowContext>,
+) {
+    let (w, h) = canvas
+        .output_size()
+        .unwrap_or((WINDOW_WIDTH, WINDOW_HEIGHT));
 
     // Dark overlay
     canvas.set_draw_color(Color::RGBA(0, 0, 0, 180));
-    canvas
-        .fill_rect(sdl2::rect::Rect::new(0, 0, w, h))
-        .ok();
+    canvas.fill_rect(sdl2::rect::Rect::new(0, 0, w, h)).ok();
 
     // Pause icon: two vertical bars
     let bar_w = 20u32;
@@ -2957,7 +3555,10 @@ mod tests {
         assert!(matches!(travel, PhaseHandler::Travel { elapsed_ms: 0 }));
 
         let deploy = phase_handler_for(&GamePhase::Mission(MissionPhase::Deployment));
-        assert!(matches!(deploy, PhaseHandler::Deployment { selected_unit: 0 }));
+        assert!(matches!(
+            deploy,
+            PhaseHandler::Deployment { selected_unit: 0 }
+        ));
 
         let combat = phase_handler_for(&GamePhase::Mission(MissionPhase::Combat));
         assert!(matches!(combat, PhaseHandler::Combat(_)));
@@ -3050,7 +3651,8 @@ fn save_screenshot(canvas: &Canvas<Window>) {
                     // RGB24 = 3 bytes per pixel, no alpha confusion.
                     match sdl2::surface::Surface::from_data_pixelmasks(
                         &mut pixels.clone(),
-                        w, h,
+                        w,
+                        h,
                         w * 3,
                         &sdl2::pixels::PixelMasks {
                             bpp: 24,
@@ -3060,12 +3662,10 @@ fn save_screenshot(canvas: &Canvas<Window>) {
                             amask: 0,
                         },
                     ) {
-                        Ok(surface) => {
-                            match surface.save_bmp(&path) {
-                                Ok(()) => info!("Screenshot saved: {path}"),
-                                Err(e) => warn!("Failed to save screenshot: {e}"),
-                            }
-                        }
+                        Ok(surface) => match surface.save_bmp(&path) {
+                            Ok(()) => info!("Screenshot saved: {path}"),
+                            Err(e) => warn!("Failed to save screenshot: {e}"),
+                        },
                         Err(e) => warn!("Failed to create screenshot surface: {e}"),
                     }
                 }

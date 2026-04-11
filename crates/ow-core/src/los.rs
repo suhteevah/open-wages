@@ -87,12 +87,7 @@ fn bresenham_line(from: TilePos, to: TilePos) -> Vec<TilePos> {
 pub fn has_line_of_sight(map: &TileMap, from: TilePos, to: TilePos) -> bool {
     let line = bresenham_line(from, to);
 
-    trace!(
-        ?from,
-        ?to,
-        tiles = line.len(),
-        "Checking line of sight"
-    );
+    trace!(?from, ?to, tiles = line.len(), "Checking line of sight");
 
     // Skip the first tile (the observer's own position).
     for pos in line.iter().skip(1) {
@@ -128,11 +123,7 @@ pub fn has_line_of_sight(map: &TileMap, from: TilePos, to: TilePos) -> bool {
 /// The `sight_range` parameter is in tile units. Weather or time-of-day
 /// modifiers should be applied by the caller before invoking this function.
 pub fn visible_tiles(map: &TileMap, origin: TilePos, sight_range: u32) -> Vec<TilePos> {
-    debug!(
-        ?origin,
-        sight_range,
-        "Computing visible tiles"
-    );
+    debug!(?origin, sight_range, "Computing visible tiles");
 
     let range = sight_range as i32;
     let mut visible: HashSet<TilePos> = HashSet::new();
@@ -197,7 +188,7 @@ pub fn visible_tiles(map: &TileMap, origin: TilePos, sight_range: u32) -> Vec<Ti
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pathfinding::{TileInfo, TerrainType};
+    use crate::pathfinding::{TerrainType, TileInfo};
 
     /// Build a simple open map.
     fn open_map(w: u32, h: u32) -> TileMap {
@@ -216,10 +207,7 @@ mod tests {
 
     #[test]
     fn bresenham_horizontal() {
-        let line = bresenham_line(
-            TilePos { x: 0, y: 0 },
-            TilePos { x: 4, y: 0 },
-        );
+        let line = bresenham_line(TilePos { x: 0, y: 0 }, TilePos { x: 4, y: 0 });
         assert_eq!(line.len(), 5);
         for (i, pos) in line.iter().enumerate() {
             assert_eq!(pos.x, i as i32);
@@ -229,10 +217,7 @@ mod tests {
 
     #[test]
     fn bresenham_diagonal() {
-        let line = bresenham_line(
-            TilePos { x: 0, y: 0 },
-            TilePos { x: 3, y: 3 },
-        );
+        let line = bresenham_line(TilePos { x: 0, y: 0 }, TilePos { x: 3, y: 3 });
         assert_eq!(line.len(), 4);
         for (i, pos) in line.iter().enumerate() {
             assert_eq!(pos.x, i as i32);

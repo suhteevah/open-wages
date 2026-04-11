@@ -295,12 +295,12 @@ pub fn parse_buttons(path: &Path) -> Result<ButtonLayout, ButtonError> {
         // for the 4 visual states, and lines 10-13 are unknown params.
         let field_1: u32 = parse_int(data_lines[0].1, data_lines[0].0)?;
         let field_2: u32 = parse_int(data_lines[1].1, data_lines[1].0)?;
-        let page: u32 = parse_int(data_lines[2].1, data_lines[2].0)?;   // tab grouping
-        let id: u32 = parse_int(data_lines[3].1, data_lines[3].0)?;     // unique button ID
-        let hit_rect = parse_rect(data_lines[4].1, data_lines[4].0)?;   // clickable area
-        let sprite_normal = parse_rect(data_lines[5].1, data_lines[5].0)?;   // idle look
-        let sprite_pressed = parse_rect(data_lines[6].1, data_lines[6].0)?;  // click look
-        let sprite_hover = parse_rect(data_lines[7].1, data_lines[7].0)?;    // mouseover look
+        let page: u32 = parse_int(data_lines[2].1, data_lines[2].0)?; // tab grouping
+        let id: u32 = parse_int(data_lines[3].1, data_lines[3].0)?; // unique button ID
+        let hit_rect = parse_rect(data_lines[4].1, data_lines[4].0)?; // clickable area
+        let sprite_normal = parse_rect(data_lines[5].1, data_lines[5].0)?; // idle look
+        let sprite_pressed = parse_rect(data_lines[6].1, data_lines[6].0)?; // click look
+        let sprite_hover = parse_rect(data_lines[7].1, data_lines[7].0)?; // mouseover look
         let sprite_disabled = parse_rect(data_lines[8].1, data_lines[8].0)?; // grayed look
         let param_1: i32 = parse_int(data_lines[9].1, data_lines[9].0)?;
         let param_2: i32 = parse_int(data_lines[10].1, data_lines[10].0)?;

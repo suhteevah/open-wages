@@ -179,7 +179,12 @@ pub fn render_hud(canvas: &mut Canvas<Window>, hud_state: &HudState) {
 fn draw_bottom_panel(canvas: &mut Canvas<Window>) {
     // Dark, slightly transparent panel background.
     canvas.set_draw_color(Color::RGBA(20, 20, 30, 220));
-    let _ = canvas.fill_rect(SdlRect::new(0, BOTTOM_PANEL_Y, SCREEN_W as u32, BOTTOM_PANEL_H as u32));
+    let _ = canvas.fill_rect(SdlRect::new(
+        0,
+        BOTTOM_PANEL_Y,
+        SCREEN_W as u32,
+        BOTTOM_PANEL_H as u32,
+    ));
 
     // Thin top border line for crispness.
     canvas.set_draw_color(Color::RGB(80, 80, 100));
@@ -296,7 +301,11 @@ fn draw_action_buttons(canvas: &mut Canvas<Window>) {
         // Shoot button — red tint, offensive action.
         ("Shoot", Color::RGB(140, 40, 40), Color::RGB(200, 80, 80)),
         // End Turn button — grey/blue, finishes the current unit's activation.
-        ("End Turn", Color::RGB(50, 60, 100), Color::RGB(90, 100, 160)),
+        (
+            "End Turn",
+            Color::RGB(50, 60, 100),
+            Color::RGB(90, 100, 160),
+        ),
     ];
 
     for (i, (_label, fill, border)) in buttons.iter().enumerate() {
@@ -311,7 +320,12 @@ fn draw_action_buttons(canvas: &mut Canvas<Window>) {
         canvas.set_draw_color(*border);
         let _ = canvas.draw_rect(SdlRect::new(bx, by, BUTTON_W as u32, BUTTON_H as u32));
 
-        trace!(button = _label, x = bx, y = by, "Drew action button placeholder");
+        trace!(
+            button = _label,
+            x = bx,
+            y = by,
+            "Drew action button placeholder"
+        );
     }
 }
 

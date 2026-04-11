@@ -222,8 +222,7 @@ mod tests {
         let mut inv = MercInventory::new();
         inv.equip_item(EquipmentSlot::PrimaryWeapon, "Heavy MG", 200, MERC_CAPACITY)
             .unwrap();
-        let result =
-            inv.equip_item(EquipmentSlot::SecondaryWeapon, "RPG", 150, MERC_CAPACITY);
+        let result = inv.equip_item(EquipmentSlot::SecondaryWeapon, "RPG", 150, MERC_CAPACITY);
         assert!(matches!(
             result,
             Err(InventoryError::WouldExceedCapacity { .. })
@@ -237,8 +236,7 @@ mod tests {
         let mut inv = MercInventory::new();
         inv.equip_item(EquipmentSlot::PrimaryWeapon, "M16", 80, MERC_CAPACITY)
             .unwrap();
-        let result =
-            inv.equip_item(EquipmentSlot::PrimaryWeapon, "AK-47", 85, MERC_CAPACITY);
+        let result = inv.equip_item(EquipmentSlot::PrimaryWeapon, "AK-47", 85, MERC_CAPACITY);
         assert!(matches!(result, Err(InventoryError::SlotOccupied { .. })));
     }
 
@@ -281,9 +279,7 @@ mod tests {
         inv.equip_item(EquipmentSlot::PrimaryWeapon, "AK-47", 85, MERC_CAPACITY)
             .unwrap();
         assert_eq!(
-            inv.get_slot(EquipmentSlot::PrimaryWeapon)
-                .unwrap()
-                .name,
+            inv.get_slot(EquipmentSlot::PrimaryWeapon).unwrap().name,
             "AK-47"
         );
     }

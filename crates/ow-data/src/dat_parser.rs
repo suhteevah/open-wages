@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use tracing::{info, debug, trace};
+use tracing::{debug, info, trace};
 
 /// A single parsed record from a .dat file.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -76,7 +76,12 @@ pub fn parse_text_dat(path: &Path, delimiter: char) -> anyhow::Result<DatFile> {
             .push(rec);
     }
 
-    info!(records = records.len(), sections = sections.len(), comments = comment_count, "Done");
+    info!(
+        records = records.len(),
+        sections = sections.len(),
+        comments = comment_count,
+        "Done"
+    );
     Ok(DatFile {
         headers,
         records,

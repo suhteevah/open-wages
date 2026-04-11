@@ -270,7 +270,9 @@ impl<'tc> TileMapRenderer<'tc> {
                     // Higher indices (100+) include marker sprites, debug tiles,
                     // and object-layer references that need the OBJ sprite sheet.
                     if overlay_layer > 0 && overlay_layer < 100 {
-                        if let Some(Some(overlay_tex)) = self.tile_textures.get(overlay_layer as usize) {
+                        if let Some(Some(overlay_tex)) =
+                            self.tile_textures.get(overlay_layer as usize)
+                        {
                             if let Err(e) = canvas.copy(overlay_tex, None, dst) {
                                 trace!(tx, ty, layer = overlay_layer, error = %e, "overlay draw failed");
                             }

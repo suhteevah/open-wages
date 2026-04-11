@@ -306,11 +306,7 @@ fn split_paragraphs(text: &str) -> Vec<String> {
             // Within a paragraph, collapse internal newlines to spaces —
             // the Write format hard-wraps lines at column ~70, but these
             // are soft wraps within a single logical paragraph.
-            let collapsed: String = chunk
-                .lines()
-                .map(str::trim)
-                .collect::<Vec<_>>()
-                .join(" ");
+            let collapsed: String = chunk.lines().map(str::trim).collect::<Vec<_>>().join(" ");
             collapsed.trim().to_string()
         })
         .filter(|p| !p.is_empty())

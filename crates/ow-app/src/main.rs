@@ -75,7 +75,11 @@ fn main() -> anyhow::Result<()> {
         println!("  Equipment:   {}", ruleset.equipment.len());
         println!("  Missions:    {}", ruleset.missions.len());
         println!("  Strings:     {}", ruleset.strings.len());
-        println!("  Hit table:   {}x{}", ruleset.hit_table.row_count(), ruleset.hit_table.col_count());
+        println!(
+            "  Hit table:   {}x{}",
+            ruleset.hit_table.row_count(),
+            ruleset.hit_table.col_count()
+        );
         println!("\nAll data loaded successfully. Exiting (--data-only mode).\n");
         return Ok(());
     }
@@ -96,11 +100,7 @@ fn main() -> anyhow::Result<()> {
         .resizable()
         .build()?;
 
-    let canvas = window
-        .into_canvas()
-        .accelerated()
-        .present_vsync()
-        .build()?;
+    let canvas = window.into_canvas().accelerated().present_vsync().build()?;
 
     info!("SDL2 window created (1280x720)");
 

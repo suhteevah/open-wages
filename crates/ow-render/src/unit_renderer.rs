@@ -191,7 +191,12 @@ impl UnitRenderer {
             return;
         }
 
-        let max_ap = reachable.iter().map(|(_, ap)| *ap).max().unwrap_or(1).max(1);
+        let max_ap = reachable
+            .iter()
+            .map(|(_, ap)| *ap)
+            .max()
+            .unwrap_or(1)
+            .max(1);
 
         for (tile, remaining_ap) in reachable {
             let world = iso.tile_to_screen(*tile);
@@ -201,7 +206,14 @@ impl UnitRenderer {
             let intensity = (*remaining_ap as f32 / max_ap as f32 * 255.0) as u8;
             let color = Color::RGBA(0, intensity / 2 + 100, intensity, OVERLAY_ALPHA);
 
-            draw_tile_diamond(canvas, screen.x as i32, screen.y as i32, iso, camera.zoom, color);
+            draw_tile_diamond(
+                canvas,
+                screen.x as i32,
+                screen.y as i32,
+                iso,
+                camera.zoom,
+                color,
+            );
 
             trace!(
                 tx = tile.x,
@@ -225,7 +237,14 @@ impl UnitRenderer {
             let world = iso.tile_to_screen(*tile);
             let screen = camera.world_to_screen(world);
 
-            draw_tile_diamond(canvas, screen.x as i32, screen.y as i32, iso, camera.zoom, color);
+            draw_tile_diamond(
+                canvas,
+                screen.x as i32,
+                screen.y as i32,
+                iso,
+                camera.zoom,
+                color,
+            );
 
             trace!(tx = tile.x, ty = tile.y, "attack overlay tile");
         }
@@ -270,7 +289,10 @@ impl UnitRenderer {
         // Mirror flag: in placeholder mode we just note it in the trace.
         // With real sprites the source rect would be flipped horizontally.
         if unit.mirror {
-            trace!(sprite_index = unit.sprite_index, "sprite mirrored for facing");
+            trace!(
+                sprite_index = unit.sprite_index,
+                "sprite mirrored for facing"
+            );
         }
 
         canvas.set_draw_color(base_color);
@@ -395,12 +417,7 @@ mod tests {
 
     #[test]
     fn paint_order_sorts_by_y_then_x() {
-        let units = vec![
-            unit_at(3, 1),
-            unit_at(1, 2),
-            unit_at(2, 2),
-            unit_at(0, 0),
-        ];
+        let units = vec![unit_at(3, 1), unit_at(1, 2), unit_at(2, 2), unit_at(0, 0)];
 
         let mut sorted: Vec<&UnitVisual> = units.iter().collect();
         sorted.sort_by_key(|u| paint_order_key(u));

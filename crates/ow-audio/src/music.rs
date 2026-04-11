@@ -87,8 +87,7 @@ pub fn scan_midi_directory(midi_dir: &Path) -> Result<MusicCatalog, AudioError> 
 
     let mut tracks = Vec::new();
 
-    let entries =
-        std::fs::read_dir(midi_dir).map_err(|e| AudioError::io(midi_dir, e))?;
+    let entries = std::fs::read_dir(midi_dir).map_err(|e| AudioError::io(midi_dir, e))?;
 
     for entry in entries {
         let entry = entry.map_err(|e| AudioError::io(midi_dir, e))?;
@@ -115,10 +114,7 @@ pub fn scan_midi_directory(midi_dir: &Path) -> Result<MusicCatalog, AudioError> 
 
         debug!(name = %stem, path = %path.display(), "cataloged MIDI track");
 
-        tracks.push(MusicTrack {
-            name: stem,
-            path,
-        });
+        tracks.push(MusicTrack { name: stem, path });
     }
 
     // Sort by name for deterministic ordering (directory iteration is OS-dependent).

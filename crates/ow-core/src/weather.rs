@@ -54,7 +54,7 @@ impl Weather {
     pub fn smoke_modifier(&self) -> f32 {
         match self {
             Weather::Clear => 1.0,
-            Weather::Foggy => 1.3,     // still air, smoke lingers
+            Weather::Foggy => 1.3, // still air, smoke lingers
             Weather::Overcast => 1.1,
             Weather::LightRain => 0.9, // rain dampens smoke slightly
             Weather::HeavyRain => 0.6, // rain knocks smoke down
@@ -102,15 +102,30 @@ pub fn roll_weather_with_rng<R: Rng>(table: &WeatherTable, rng: &mut R) -> Weath
     let roll = rng.gen_range(0..total);
 
     let mut cursor = 0u32;
-    let result = if roll < { cursor += table.clear as u32; cursor } {
+    let result = if roll < {
+        cursor += table.clear as u32;
+        cursor
+    } {
         Weather::Clear
-    } else if roll < { cursor += table.foggy as u32; cursor } {
+    } else if roll < {
+        cursor += table.foggy as u32;
+        cursor
+    } {
         Weather::Foggy
-    } else if roll < { cursor += table.overcast as u32; cursor } {
+    } else if roll < {
+        cursor += table.overcast as u32;
+        cursor
+    } {
         Weather::Overcast
-    } else if roll < { cursor += table.light_rain as u32; cursor } {
+    } else if roll < {
+        cursor += table.light_rain as u32;
+        cursor
+    } {
         Weather::LightRain
-    } else if roll < { cursor += table.heavy_rain as u32; cursor } {
+    } else if roll < {
+        cursor += table.heavy_rain as u32;
+        cursor
+    } {
         Weather::HeavyRain
     } else {
         Weather::Storm

@@ -225,7 +225,10 @@ pub fn parse_vals_from_bytes(data: &[u8], path: &Path) -> Result<ValsFile, Audio
     // -- Validate magic --
     if !has_vals_magic(data) {
         let actual = if data.len() >= 4 {
-            format!("{:02X} {:02X} {:02X} {:02X}", data[0], data[1], data[2], data[3])
+            format!(
+                "{:02X} {:02X} {:02X} {:02X}",
+                data[0], data[1], data[2], data[3]
+            )
         } else {
             format!("only {} bytes", data.len())
         };
@@ -251,9 +254,9 @@ pub fn parse_vals_from_bytes(data: &[u8], path: &Path) -> Result<ValsFile, Audio
 
     // The index region runs from 0x10 to 0x08 + index_size.
     // Each entry is 8 bytes: i32 mouth_shape + u32 sample_offset.
-    let index_end = 0x08usize.checked_add(index_size as usize).ok_or_else(|| {
-        AudioError::invalid_format(path, "index_size overflow")
-    })?;
+    let index_end = 0x08usize
+        .checked_add(index_size as usize)
+        .ok_or_else(|| AudioError::invalid_format(path, "index_size overflow"))?;
 
     if index_end > data.len() {
         return Err(AudioError::invalid_format(

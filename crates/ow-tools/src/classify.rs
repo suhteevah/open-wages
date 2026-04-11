@@ -81,13 +81,22 @@ pub fn null_ratio(data: &[u8]) -> f64 {
 
 /// Format bytes as hex string with spaces (e.g., "4d 5a 90 00").
 pub fn hex_display(data: &[u8]) -> String {
-    data.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
+    data.iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Format bytes as ASCII with non-printable replaced by '.'.
 pub fn ascii_display(data: &[u8]) -> String {
     data.iter()
-        .map(|&b| if (32..=126).contains(&b) { b as char } else { '.' })
+        .map(|&b| {
+            if (32..=126).contains(&b) {
+                b as char
+            } else {
+                '.'
+            }
+        })
         .collect()
 }
 

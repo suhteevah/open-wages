@@ -77,16 +77,12 @@ pub fn resolve_attack(
             weapon_damage
         } else {
             // Armor absorbed some — deal reduced damage (at least 1 on hit)
-            weapon_damage.saturating_sub(armor_pen.saturating_sub(weapon_pen)) .max(1)
+            weapon_damage
+                .saturating_sub(armor_pen.saturating_sub(weapon_pen))
+                .max(1)
         };
 
-        debug!(
-            damage,
-            penetrated,
-            weapon_pen,
-            armor_pen,
-            "Attack hit"
-        );
+        debug!(damage, penetrated, weapon_pen, armor_pen, "Attack hit");
         AttackResult::Hit { damage, penetrated }
     } else {
         // Near miss — check if it causes suppression anyway
@@ -114,11 +110,7 @@ pub fn check_suppression(will: u32, incoming_firepower: u32, distance: u32) -> b
     let suppressed = pressure > will;
     debug!(
         will,
-        incoming_firepower,
-        distance,
-        pressure,
-        suppressed,
-        "Suppression check"
+        incoming_firepower, distance, pressure, suppressed, "Suppression check"
     );
     suppressed
 }
@@ -148,7 +140,13 @@ mod tests {
         let table = test_hit_table();
         // WSK 20 -> col 4, range 0 -> 98% chance, roll 50 -> hit
         let result = resolve_attack(20, 5, 10, 5, 0, 1.0, &table, 50);
-        assert!(matches!(result, AttackResult::Hit { penetrated: true, .. }));
+        assert!(matches!(
+            result,
+            AttackResult::Hit {
+                penetrated: true,
+                ..
+            }
+        ));
     }
 
     #[test]

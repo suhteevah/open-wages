@@ -97,7 +97,11 @@ fn extract_after(line: &str, prefix: &str) -> Option<String> {
 fn parse_int(s: &str, line_num: usize, field: &str) -> Result<i32, MercsError> {
     s.trim().parse::<i32>().map_err(|_| MercsError::Parse {
         line: line_num,
-        message: format!("failed to parse '{}' as integer for field '{}'", s.trim(), field),
+        message: format!(
+            "failed to parse '{}' as integer for field '{}'",
+            s.trim(),
+            field
+        ),
     })
 }
 
@@ -105,7 +109,11 @@ fn parse_int(s: &str, line_num: usize, field: &str) -> Result<i32, MercsError> {
 fn parse_uint(s: &str, line_num: usize, field: &str) -> Result<u32, MercsError> {
     s.trim().parse::<u32>().map_err(|_| MercsError::Parse {
         line: line_num,
-        message: format!("failed to parse '{}' as unsigned integer for field '{}'", s.trim(), field),
+        message: format!(
+            "failed to parse '{}' as unsigned integer for field '{}'",
+            s.trim(),
+            field
+        ),
     })
 }
 
@@ -158,10 +166,12 @@ fn parse_record(lines: &[&str], base_line: usize) -> Result<Mercenary, MercsErro
         message: "expected 'Age:' prefix".into(),
     })?;
     // Split on "Hgt:" to isolate age
-    let (age_part, rest) = age_str.split_once("Hgt:").ok_or_else(|| MercsError::Parse {
-        line: ln,
-        message: "expected 'Hgt:' on age/height/weight line".into(),
-    })?;
+    let (age_part, rest) = age_str
+        .split_once("Hgt:")
+        .ok_or_else(|| MercsError::Parse {
+            line: ln,
+            message: "expected 'Hgt:' on age/height/weight line".into(),
+        })?;
     let age = parse_uint(age_part, ln, "Age")?;
 
     // rest is something like "  5 6\tWgt:  130 lbs."
@@ -173,7 +183,10 @@ fn parse_record(lines: &[&str], base_line: usize) -> Result<Mercenary, MercsErro
     if hgt_tokens.len() < 2 {
         return Err(MercsError::Parse {
             line: ln,
-            message: format!("expected 2 height tokens (feet inches), got {}", hgt_tokens.len()),
+            message: format!(
+                "expected 2 height tokens (feet inches), got {}",
+                hgt_tokens.len()
+            ),
         });
     }
     let height_feet = parse_uint(hgt_tokens[0], ln, "height_feet")?;
@@ -209,10 +222,12 @@ fn parse_record(lines: &[&str], base_line: usize) -> Result<Mercenary, MercsErro
         message: "expected 'RATING:' prefix".into(),
     })?;
     // rating_val is like "76             DPR:  142       PSG:  280         AVAIL: 1"
-    let (rating_str, rest) = rating_val.split_once("DPR:").ok_or_else(|| MercsError::Parse {
-        line: ln,
-        message: "expected 'DPR:' on RATING line".into(),
-    })?;
+    let (rating_str, rest) = rating_val
+        .split_once("DPR:")
+        .ok_or_else(|| MercsError::Parse {
+            line: ln,
+            message: "expected 'DPR:' on RATING line".into(),
+        })?;
     let rating = parse_int(rating_str, ln, "RATING")?;
 
     let (dpr_str, rest) = rest.split_once("PSG:").ok_or_else(|| MercsError::Parse {
@@ -242,10 +257,12 @@ fn parse_record(lines: &[&str], base_line: usize) -> Result<Mercenary, MercsErro
         line: ln,
         message: "expected 'EXP:' prefix".into(),
     })?;
-    let (exp_str, rest) = exp_val.split_once("STR:").ok_or_else(|| MercsError::Parse {
-        line: ln,
-        message: "expected 'STR:' on EXP line".into(),
-    })?;
+    let (exp_str, rest) = exp_val
+        .split_once("STR:")
+        .ok_or_else(|| MercsError::Parse {
+            line: ln,
+            message: "expected 'STR:' on EXP line".into(),
+        })?;
     let exp = parse_int(exp_str, ln, "EXP")?;
     let (str_str, agl_str) = rest.split_once("AGL:").ok_or_else(|| MercsError::Parse {
         line: ln,
@@ -268,10 +285,12 @@ fn parse_record(lines: &[&str], base_line: usize) -> Result<Mercenary, MercsErro
         line: ln,
         message: "expected 'WIL:' prefix".into(),
     })?;
-    let (wil_str, rest) = wil_val.split_once("WSK:").ok_or_else(|| MercsError::Parse {
-        line: ln,
-        message: "expected 'WSK:' on WIL line".into(),
-    })?;
+    let (wil_str, rest) = wil_val
+        .split_once("WSK:")
+        .ok_or_else(|| MercsError::Parse {
+            line: ln,
+            message: "expected 'WSK:' on WIL line".into(),
+        })?;
     let wil = parse_int(wil_str, ln, "WIL")?;
     let (wsk_str, hhc_str) = rest.split_once("HHC:").ok_or_else(|| MercsError::Parse {
         line: ln,
@@ -294,10 +313,12 @@ fn parse_record(lines: &[&str], base_line: usize) -> Result<Mercenary, MercsErro
         line: ln,
         message: "expected 'TCH:' prefix".into(),
     })?;
-    let (tch_str, rest) = tch_val.split_once("ENC:").ok_or_else(|| MercsError::Parse {
-        line: ln,
-        message: "expected 'ENC:' on TCH line".into(),
-    })?;
+    let (tch_str, rest) = tch_val
+        .split_once("ENC:")
+        .ok_or_else(|| MercsError::Parse {
+            line: ln,
+            message: "expected 'ENC:' on TCH line".into(),
+        })?;
     let tch = parse_int(tch_str, ln, "TCH")?;
     let (enc_str, aps_str) = rest.split_once("APS:").ok_or_else(|| MercsError::Parse {
         line: ln,
@@ -444,7 +465,10 @@ pub fn parse_mercs(path: &Path) -> Result<Vec<Mercenary>, MercsError> {
         mercs.push(merc);
     }
 
-    info!(merc_count = mercs.len(), "successfully parsed all mercenaries");
+    info!(
+        merc_count = mercs.len(),
+        "successfully parsed all mercenaries"
+    );
     Ok(mercs)
 }
 

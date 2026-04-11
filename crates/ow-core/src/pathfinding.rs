@@ -51,7 +51,7 @@ impl TerrainType {
     pub fn cost_multiplier_tenths(self) -> u32 {
         match self {
             TerrainType::Open => 10,
-            TerrainType::Road => 7,   // roads are faster (0.7×)
+            TerrainType::Road => 7,    // roads are faster (0.7×)
             TerrainType::Forest => 18, // thick undergrowth (1.8×)
             TerrainType::Sand => 14,   // loose footing (1.4×)
             TerrainType::Water => 0,   // impassable — handled by walkable flag
@@ -128,7 +128,8 @@ impl TileMap {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
             return None;
         }
-        self.tiles.get_mut((y as u32 * self.width + x as u32) as usize)
+        self.tiles
+            .get_mut((y as u32 * self.width + x as u32) as usize)
     }
 
     /// Whether `pos` is in-bounds and passable (walkable + unoccupied).
@@ -226,12 +227,7 @@ pub fn find_path(
     goal: TilePos,
     max_ap: u32,
 ) -> Option<(Vec<TilePos>, u32)> {
-    debug!(
-        ?start,
-        ?goal,
-        max_ap,
-        "Pathfinding request"
-    );
+    debug!(?start, ?goal, max_ap, "Pathfinding request");
 
     if start == goal {
         trace!("Start equals goal — trivial path");
@@ -256,19 +252,10 @@ pub fn find_path(
             // Convert tenths → whole AP, rounding up.
             let ap_cost = cost_tenths.div_ceil(10);
             if ap_cost > max_ap {
-                debug!(
-                    ap_cost,
-                    max_ap,
-                    "Path found but exceeds AP budget"
-                );
+                debug!(ap_cost, max_ap, "Path found but exceeds AP budget");
                 return None;
             }
-            debug!(
-                path_len = path.len(),
-                ap_cost,
-                cost_tenths,
-                "Path found"
-            );
+            debug!(path_len = path.len(), ap_cost, cost_tenths, "Path found");
             Some((path, ap_cost))
         }
         None => {
@@ -284,8 +271,8 @@ pub fn find_path(
 /// Implemented via Dijkstra flood-fill. The result is used by the UI to show
 /// a movement-range overlay.
 pub fn reachable_tiles(map: &TileMap, start: TilePos, max_ap: u32) -> Vec<(TilePos, u32)> {
-    use std::collections::BinaryHeap;
     use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
 
     debug!(?start, max_ap, "Computing reachable tiles");
 
@@ -385,7 +372,11 @@ mod tests {
         let (path, _cost) = result.unwrap();
         // Path must go around the wall — none of the path tiles should be walls.
         for pos in &path {
-            assert!(map.is_walkable(*pos), "Path goes through non-walkable tile {:?}", pos);
+            assert!(
+                map.is_walkable(*pos),
+                "Path goes through non-walkable tile {:?}",
+                pos
+            );
         }
         assert_eq!(path.first(), Some(&start));
         assert_eq!(path.last(), Some(&goal));
@@ -465,7 +456,11 @@ mod tests {
         let reachable = reachable_tiles(&map, start, 1);
         // With 1 AP (= 10 tenths), we can reach the 4 cardinal neighbours
         // (cost 10 tenths each). Diagonals cost 14 tenths → too expensive.
-        assert_eq!(reachable.len(), 4, "Should reach exactly 4 cardinal tiles with 1 AP");
+        assert_eq!(
+            reachable.len(),
+            4,
+            "Should reach exactly 4 cardinal tiles with 1 AP"
+        );
         for (pos, cost) in &reachable {
             assert_eq!(*cost, 1);
             let dx = (pos.x - 5).abs();

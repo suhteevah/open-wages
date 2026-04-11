@@ -232,7 +232,10 @@ pub fn parse_map_bytes(data: &[u8], path: &Path) -> Result<GameMap, MapError> {
     // --- Metadata footer ---
     let metadata = data[METADATA_OFFSET..].to_vec();
     debug_assert_eq!(metadata.len(), METADATA_SIZE);
-    trace!(metadata_size = metadata.len(), "metadata footer captured (unparsed)");
+    trace!(
+        metadata_size = metadata.len(),
+        "metadata footer captured (unparsed)"
+    );
 
     let header = MapHeader {
         width: GRID_WIDTH as u32,
@@ -307,7 +310,10 @@ fn parse_string_table(data: &[u8]) -> MapAssetRefs {
         let end = start + STRING_ENTRY_SIZE;
         let slice = &data[start..end];
         // Find first null byte
-        let len = slice.iter().position(|&b| b == 0).unwrap_or(STRING_ENTRY_SIZE);
+        let len = slice
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(STRING_ENTRY_SIZE);
         String::from_utf8_lossy(&slice[..len]).to_string()
     };
 
@@ -323,10 +329,7 @@ fn parse_string_table(data: &[u8]) -> MapAssetRefs {
 ///
 /// Useful for resolving the original `C:\WOW\...` paths to local filenames.
 pub fn filename_from_build_path(build_path: &str) -> &str {
-    build_path
-        .rsplit('\\')
-        .next()
-        .unwrap_or(build_path)
+    build_path.rsplit('\\').next().unwrap_or(build_path)
 }
 
 // ---------------------------------------------------------------------------
@@ -360,7 +363,10 @@ mod tests {
         let obj_sprite = b"C:\\WOW\\SPR\\SCEN1\\SCEN1.OBJ";
         let obj_meta = b"C:\\WOW\\SPR\\SCEN1\\OBJ01.DAT";
 
-        for (i, entry) in [tileset.as_ref(), tile_meta, obj_sprite, obj_meta].iter().enumerate() {
+        for (i, entry) in [tileset.as_ref(), tile_meta, obj_sprite, obj_meta]
+            .iter()
+            .enumerate()
+        {
             let offset = STRING_TABLE_OFFSET + i * STRING_ENTRY_SIZE;
             data[offset..offset + entry.len()].copy_from_slice(entry);
         }
@@ -395,15 +401,30 @@ mod tests {
         let data = make_test_map();
         let map = parse_map_bytes(&data, Path::new("test.MAP")).unwrap();
 
-        assert_eq!(map.asset_refs.tileset_path, r"C:\WOW\SPR\SCEN1\TILSCN01.TIL");
-        assert_eq!(map.asset_refs.tile_meta_path, r"C:\WOW\SPR\SCEN1\TILES1.DAT");
-        assert_eq!(map.asset_refs.object_sprite_path, r"C:\WOW\SPR\SCEN1\SCEN1.OBJ");
-        assert_eq!(map.asset_refs.object_meta_path, r"C:\WOW\SPR\SCEN1\OBJ01.DAT");
+        assert_eq!(
+            map.asset_refs.tileset_path,
+            r"C:\WOW\SPR\SCEN1\TILSCN01.TIL"
+        );
+        assert_eq!(
+            map.asset_refs.tile_meta_path,
+            r"C:\WOW\SPR\SCEN1\TILES1.DAT"
+        );
+        assert_eq!(
+            map.asset_refs.object_sprite_path,
+            r"C:\WOW\SPR\SCEN1\SCEN1.OBJ"
+        );
+        assert_eq!(
+            map.asset_refs.object_meta_path,
+            r"C:\WOW\SPR\SCEN1\OBJ01.DAT"
+        );
     }
 
     #[test]
     fn filename_extraction() {
-        assert_eq!(filename_from_build_path(r"C:\WOW\SPR\SCEN1\TILSCN01.TIL"), "TILSCN01.TIL");
+        assert_eq!(
+            filename_from_build_path(r"C:\WOW\SPR\SCEN1\TILSCN01.TIL"),
+            "TILSCN01.TIL"
+        );
         assert_eq!(filename_from_build_path("TILES1.DAT"), "TILES1.DAT");
         assert_eq!(filename_from_build_path(""), "");
     }
@@ -455,6 +476,9 @@ mod tests {
 
         let map = parse_map(&path).unwrap();
         assert_eq!(map.header.width, 200);
-        assert_eq!(map.asset_refs.tileset_path, r"C:\WOW\SPR\SCEN1\TILSCN01.TIL");
+        assert_eq!(
+            map.asset_refs.tileset_path,
+            r"C:\WOW\SPR\SCEN1\TILSCN01.TIL"
+        );
     }
 }

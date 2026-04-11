@@ -34,7 +34,11 @@ pub fn apply_palette(pixels: &[u8], palette: &Palette256) -> Vec<u8> {
 /// The original game was designed for CRT displays which had different
 /// gamma characteristics than modern LCD panels, so a brightness boost
 /// of ~1.4-1.6 gives a closer visual match.
-pub fn apply_palette_with_brightness(pixels: &[u8], palette: &Palette256, brightness: f32) -> Vec<u8> {
+pub fn apply_palette_with_brightness(
+    pixels: &[u8],
+    palette: &Palette256,
+    brightness: f32,
+) -> Vec<u8> {
     let mut rgba = Vec::with_capacity(pixels.len() * 4);
 
     for &idx in pixels {
@@ -89,7 +93,11 @@ pub fn extract_pcx_palette(data: &[u8]) -> Option<Palette256> {
 
     for (i, entry) in palette.iter_mut().enumerate() {
         let base = i * 3;
-        *entry = (palette_data[base], palette_data[base + 1], palette_data[base + 2]);
+        *entry = (
+            palette_data[base],
+            palette_data[base + 1],
+            palette_data[base + 2],
+        );
     }
 
     debug!("extracted 256-color palette from PCX");

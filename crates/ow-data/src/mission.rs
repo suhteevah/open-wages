@@ -666,13 +666,7 @@ fn parse_negotiation(c: &mut Cursor) -> Result<Negotiation, MissionError> {
         counter_deadline[i] = parse_u8(v, c.line_num(), "counter deadline")?;
     }
 
-    debug!(
-        ?advance,
-        ?bonus,
-        ?deadline,
-        ?chance,
-        "Parsed negotiation"
-    );
+    debug!(?advance, ?bonus, ?deadline, ?chance, "Parsed negotiation");
 
     Ok(Negotiation {
         advance,
@@ -753,11 +747,7 @@ fn parse_intelligence(c: &mut Cursor) -> Result<IntelligenceConfig, MissionError
 
     // Attachments
     let attach_line = c.find_label("attachments")?;
-    let attachments = parse_u8(
-        after_colon(attach_line).trim(),
-        c.line_num(),
-        "attachments",
-    )?;
+    let attachments = parse_u8(after_colon(attach_line).trim(), c.line_num(), "attachments")?;
 
     let tiers_arr: [IntelTier; 3] = [tiers.remove(0), tiers.remove(0), tiers.remove(0)];
 
@@ -775,21 +765,25 @@ fn parse_intelligence(c: &mut Cursor) -> Result<IntelligenceConfig, MissionError
     })
 }
 
-fn parse_enemy_ratings(
-    c: &mut Cursor,
-) -> Result<(u16, u16, Vec<EnemyRating>), MissionError> {
+fn parse_enemy_ratings(c: &mut Cursor) -> Result<(u16, u16, Vec<EnemyRating>), MissionError> {
     c.find_label("enemy ratings chart")?;
 
     let num_line = c.find_label("number:")?;
     let enemy_count = parse_u16(
-        after_colon(num_line).split_whitespace().next().unwrap_or("0"),
+        after_colon(num_line)
+            .split_whitespace()
+            .next()
+            .unwrap_or("0"),
         c.line_num(),
         "enemy count",
     )?;
 
     let npc_line = c.find_label("npcs:")?;
     let npc_count = parse_u16(
-        after_colon(npc_line).split_whitespace().next().unwrap_or("0"),
+        after_colon(npc_line)
+            .split_whitespace()
+            .next()
+            .unwrap_or("0"),
         c.line_num(),
         "npc count",
     )?;
@@ -812,10 +806,7 @@ fn parse_enemy_ratings(
         if f.len() < 13 {
             return Err(parse_err(
                 c.line_num(),
-                format!(
-                    "Enemy rating row {i} has {} fields, expected 13",
-                    f.len()
-                ),
+                format!("Enemy rating row {i} has {} fields, expected 13", f.len()),
             ));
         }
         ratings.push(EnemyRating {
@@ -833,7 +824,11 @@ fn parse_enemy_ratings(
             presence_chance: parse_u8(f[11], c.line_num(), "presence_chance")?,
             enemy_type: parse_u8(f[12], c.line_num(), "enemy_type")?,
         });
-        trace!(row = i, rating = ratings.last().unwrap().rating, "Parsed enemy rating");
+        trace!(
+            row = i,
+            rating = ratings.last().unwrap().rating,
+            "Parsed enemy rating"
+        );
     }
 
     if ratings.len() != total_rows {
@@ -861,10 +856,7 @@ fn parse_enemy_weapons(
         if f.len() < 6 {
             return Err(parse_err(
                 c.line_num(),
-                format!(
-                    "Enemy weapon row {i} has {} fields, expected 6",
-                    f.len()
-                ),
+                format!("Enemy weapon row {i} has {} fields, expected 6", f.len()),
             ));
         }
         weapons.push(EnemyWeapon {
@@ -875,7 +867,11 @@ fn parse_enemy_weapons(
             weapon3: parse_i8(f[4], c.line_num(), "weapon3")?,
             extra: parse_i8(f[5], c.line_num(), "extra")?,
         });
-        trace!(row = i, w1 = weapons.last().unwrap().weapon1, "Parsed enemy weapon");
+        trace!(
+            row = i,
+            w1 = weapons.last().unwrap().weapon1,
+            "Parsed enemy weapon"
+        );
     }
 
     if weapons.len() != expected_rows {
@@ -888,10 +884,7 @@ fn parse_enemy_weapons(
     Ok(weapons)
 }
 
-fn parse_equipment_line(
-    c: &mut Cursor,
-    label: &str,
-) -> Result<EquipmentCounts, MissionError> {
+fn parse_equipment_line(c: &mut Cursor, label: &str) -> Result<EquipmentCounts, MissionError> {
     let line = c.find_label("equipment")?;
     let fields = ws_fields(after_colon(line));
     if fields.len() < 3 {
@@ -1014,7 +1007,11 @@ fn parse_travel(c: &mut Cursor) -> Result<TravelTable, MissionError> {
         days3: parse_u8(fields[5], c.line_num(), "days3")?,
     };
 
-    debug!(cost1 = travel.cost1, days1 = travel.days1, "Parsed travel table");
+    debug!(
+        cost1 = travel.cost1,
+        days1 = travel.days1,
+        "Parsed travel table"
+    );
 
     Ok(travel)
 }
@@ -1022,28 +1019,40 @@ fn parse_travel(c: &mut Cursor) -> Result<TravelTable, MissionError> {
 fn parse_special(c: &mut Cursor) -> Result<SpecialConfig, MissionError> {
     let turns_line = c.find_label("special turns")?;
     let turns = parse_u8(
-        after_colon(turns_line).split_whitespace().next().unwrap_or("0"),
+        after_colon(turns_line)
+            .split_whitespace()
+            .next()
+            .unwrap_or("0"),
         c.line_num(),
         "special turns",
     )?;
 
     let type_line = c.find_label("special type")?;
     let special_type = parse_u8(
-        after_colon(type_line).split_whitespace().next().unwrap_or("0"),
+        after_colon(type_line)
+            .split_whitespace()
+            .next()
+            .unwrap_or("0"),
         c.line_num(),
         "special type",
     )?;
 
     let item_line = c.find_label("special item")?;
     let item = parse_u8(
-        after_colon(item_line).split_whitespace().next().unwrap_or("0"),
+        after_colon(item_line)
+            .split_whitespace()
+            .next()
+            .unwrap_or("0"),
         c.line_num(),
         "special item",
     )?;
 
     let dmg_line = c.find_label("special damage")?;
     let damage = parse_u8(
-        after_colon(dmg_line).split_whitespace().next().unwrap_or("0"),
+        after_colon(dmg_line)
+            .split_whitespace()
+            .next()
+            .unwrap_or("0"),
         c.line_num(),
         "special damage",
     )?;
@@ -1199,7 +1208,10 @@ Special Damage: 2
         assert_eq!(mission.contract.deadline_day, 20);
 
         // Negotiation
-        assert_eq!(mission.negotiation.advance, [349000, 374000, 399000, 424000]);
+        assert_eq!(
+            mission.negotiation.advance,
+            [349000, 374000, 399000, 424000]
+        );
         assert_eq!(mission.negotiation.chance, [76, 52, 28, 4]);
         assert_eq!(
             mission.negotiation.counter_values,
@@ -1332,8 +1344,7 @@ Special Damage: 2
         let result = parse_mission(file.path());
         assert!(result.is_err());
         match result.unwrap_err() {
-            MissionError::MissingSection { section }
-            | MissionError::UnexpectedEof { section } => {
+            MissionError::MissingSection { section } | MissionError::UnexpectedEof { section } => {
                 // Expected -- some required section is missing
                 assert!(!section.is_empty());
             }
@@ -1349,8 +1360,7 @@ Special Damage: 2
             "Equipment Amount/Number: 49 1",
         );
         let file = write_temp_file(&content);
-        let mission =
-            parse_mission(file.path()).expect("should parse Equipment Amount variant");
+        let mission = parse_mission(file.path()).expect("should parse Equipment Amount variant");
         assert_eq!(mission.recommended_item.as_ref().unwrap().item_id, 49);
     }
 }

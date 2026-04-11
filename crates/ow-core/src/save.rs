@@ -146,8 +146,7 @@ pub fn load_game(path: &Path) -> Result<GameState, SaveError> {
 
     let json = fs::read_to_string(path)?;
 
-    let save_file: SaveFile =
-        serde_json::from_str(&json).map_err(SaveError::Deserialization)?;
+    let save_file: SaveFile = serde_json::from_str(&json).map_err(SaveError::Deserialization)?;
 
     // Reject saves from future engine versions.
     if save_file.header.version > SAVE_VERSION {
@@ -196,9 +195,7 @@ pub fn list_saves(save_dir: &Path) -> Result<Vec<SaveHeader>, SaveError> {
         let path = entry.path();
 
         // Only look at .json files.
-        let is_save = path
-            .extension()
-            .map_or(false, |ext| ext == SAVE_EXTENSION);
+        let is_save = path.extension().map_or(false, |ext| ext == SAVE_EXTENSION);
         if !is_save {
             continue;
         }
@@ -243,10 +240,7 @@ pub fn delete_save(path: &Path) -> Result<(), SaveError> {
 
 /// Build a [`SaveHeader`] from the current game state.
 fn build_header(state: &GameState, save_name: &str) -> SaveHeader {
-    let turn_number = state
-        .current_mission
-        .as_ref()
-        .map_or(0, |m| m.turn_number);
+    let turn_number = state.current_mission.as_ref().map_or(0, |m| m.turn_number);
 
     let phase_description = format!("{:?}", state.phase);
 
@@ -278,8 +272,7 @@ fn read_header(path: &Path) -> Result<SaveHeader, SaveError> {
     // A future optimization could use serde_json::Value to avoid
     // deserializing game_state, but save files are small enough that
     // this doesn't matter in practice.
-    let save_file: SaveFile =
-        serde_json::from_str(&json).map_err(SaveError::Deserialization)?;
+    let save_file: SaveFile = serde_json::from_str(&json).map_err(SaveError::Deserialization)?;
 
     Ok(save_file.header)
 }
@@ -378,7 +371,8 @@ mod tests {
 
     impl TempDir {
         fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!("ow_save_test_{name}_{}", std::process::id()));
+            let path =
+                std::env::temp_dir().join(format!("ow_save_test_{name}_{}", std::process::id()));
             let _ = fs::remove_dir_all(&path); // clean up from any prior failed run
             fs::create_dir_all(&path).expect("failed to create temp dir");
             Self { path }

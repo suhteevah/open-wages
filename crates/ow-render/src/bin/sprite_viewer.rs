@@ -21,7 +21,10 @@ use tracing_subscriber::EnvFilter;
 
 /// Interactive sprite viewer for Wages of War sprite containers.
 #[derive(Parser, Debug)]
-#[command(name = "sprite-viewer", about = "View decoded sprites from WoW data files")]
+#[command(
+    name = "sprite-viewer",
+    about = "View decoded sprites from WoW data files"
+)]
 struct Args {
     /// Path to a sprite container file (.OBJ, .SPR, .TIL, or ANIM .DAT).
     sprite_file: PathBuf,

@@ -488,7 +488,10 @@ mod tests {
         assert_eq!(result, Some(7));
 
         // Verify state was updated.
-        if let UiElement::Button { hovered, pressed, .. } = &state.elements[0] {
+        if let UiElement::Button {
+            hovered, pressed, ..
+        } = &state.elements[0]
+        {
             assert!(*hovered);
             assert!(*pressed);
         } else {
@@ -514,7 +517,10 @@ mod tests {
         let result = handle_mouse_event(&mut state, 120, 120, false);
         assert_eq!(result, None);
 
-        if let UiElement::Button { hovered, pressed, .. } = &state.elements[0] {
+        if let UiElement::Button {
+            hovered, pressed, ..
+        } = &state.elements[0]
+        {
             assert!(*hovered);
             assert!(!(*pressed));
         } else {
@@ -540,7 +546,10 @@ mod tests {
         let result = handle_mouse_event(&mut state, 50, 50, true);
         assert_eq!(result, None);
 
-        if let UiElement::Button { hovered, pressed, .. } = &state.elements[0] {
+        if let UiElement::Button {
+            hovered, pressed, ..
+        } = &state.elements[0]
+        {
             assert!(!(*hovered));
             assert!(!(*pressed));
         } else {
@@ -566,7 +575,10 @@ mod tests {
         let result = handle_mouse_event(&mut state, 120, 120, true);
         assert_eq!(result, None);
 
-        if let UiElement::Button { hovered, pressed, .. } = &state.elements[0] {
+        if let UiElement::Button {
+            hovered, pressed, ..
+        } = &state.elements[0]
+        {
             assert!(!(*hovered));
             assert!(!(*pressed));
         } else {

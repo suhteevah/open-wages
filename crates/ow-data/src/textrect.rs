@@ -65,10 +65,7 @@ pub fn parse_text_rects(path: &Path) -> Result<Vec<TextRect>, TextRectError> {
 
     let raw = std::fs::read_to_string(path)?;
 
-    let lines: Vec<&str> = raw
-        .lines()
-        .map(|l| l.trim_end_matches('\r'))
-        .collect();
+    let lines: Vec<&str> = raw.lines().map(|l| l.trim_end_matches('\r')).collect();
 
     // Find the first non-blank, non-comment line for the entry count.
     let mut idx = 0;
@@ -91,13 +88,12 @@ pub fn parse_text_rects(path: &Path) -> Result<Vec<TextRect>, TextRectError> {
             })?
             .to_string();
 
-        let count: usize =
-            count_token
-                .parse()
-                .map_err(|_| TextRectError::InvalidEntryCount {
-                    line: idx + 1,
-                    text: trimmed.to_string(),
-                })?;
+        let count: usize = count_token
+            .parse()
+            .map_err(|_| TextRectError::InvalidEntryCount {
+                line: idx + 1,
+                text: trimmed.to_string(),
+            })?;
 
         debug!(expected = count, "Declared entry count");
         idx += 1;
@@ -278,7 +274,13 @@ mod tests {
         let content = "3 #count\n10 20 30 40 5\n";
         let path = write_temp_textrect(content);
         let err = parse_text_rects(&path).unwrap_err();
-        assert!(matches!(err, TextRectError::CountMismatch { expected: 3, actual: 1 }));
+        assert!(matches!(
+            err,
+            TextRectError::CountMismatch {
+                expected: 3,
+                actual: 1
+            }
+        ));
     }
 
     #[test]

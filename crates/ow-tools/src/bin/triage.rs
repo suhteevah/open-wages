@@ -55,8 +55,7 @@ fn main() -> anyhow::Result<()> {
 fn triage_file(path: &PathBuf, max_stride: usize, min_string_len: usize) -> anyhow::Result<()> {
     info!(path = %path.display(), "Triaging file");
 
-    let data = std::fs::read(path)
-        .with_context(|| format!("Reading {}", path.display()))?;
+    let data = std::fs::read(path).with_context(|| format!("Reading {}", path.display()))?;
     let size = data.len();
 
     let header = &data[..data.len().min(512)];
@@ -130,8 +129,14 @@ fn triage_file(path: &PathBuf, max_stride: usize, min_string_len: usize) -> anyh
     let hex_str = classify::hex_display(header_64);
     let ascii_str = classify::ascii_display(header_64);
     // Show first 48 chars worth
-    println!("\n  Header (hex):   {}...", &hex_str[..hex_str.len().min(48)]);
-    println!("  Header (ascii): {}...", &ascii_str[..ascii_str.len().min(48)]);
+    println!(
+        "\n  Header (hex):   {}...",
+        &hex_str[..hex_str.len().min(48)]
+    );
+    println!(
+        "  Header (ascii): {}...",
+        &ascii_str[..ascii_str.len().min(48)]
+    );
 
     if !strings.is_empty() {
         println!("\n  Strings ({} total, showing first 20):", strings.len());

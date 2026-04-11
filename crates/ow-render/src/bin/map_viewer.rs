@@ -102,21 +102,17 @@ fn main() -> anyhow::Result<()> {
     info!(filename = tileset_filename, "resolving tileset");
 
     let scen_dir = map_path.parent().unwrap();
-    let tileset_path = find_file_case_insensitive(scen_dir, tileset_filename)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "tileset '{}' not found in {}",
-                tileset_filename,
-                scen_dir.display()
-            )
-        })?;
+    let tileset_path = find_file_case_insensitive(scen_dir, tileset_filename).ok_or_else(|| {
+        anyhow::anyhow!(
+            "tileset '{}' not found in {}",
+            tileset_filename,
+            scen_dir.display()
+        )
+    })?;
 
     info!(path = %tileset_path.display(), "loading tileset");
     let tileset = ow_data::sprite::parse_sprite_file(&tileset_path)?;
-    info!(
-        sprites = tileset.file_header.sprite_count,
-        "tileset loaded"
-    );
+    info!(sprites = tileset.file_header.sprite_count, "tileset loaded");
 
     // -----------------------------------------------------------------------
     // SDL2 init
@@ -311,10 +307,7 @@ fn main() -> anyhow::Result<()> {
 /// If they point at a parent that contains WOW/, use that subfolder.
 fn resolve_wow_dir(data_dir: &Path) -> anyhow::Result<PathBuf> {
     // Check if data_dir itself is the WOW folder
-    let dir_name = data_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let dir_name = data_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
     if dir_name.eq_ignore_ascii_case("wow") {
         return Ok(data_dir.to_path_buf());
@@ -364,8 +357,9 @@ fn load_palette_from_pic_dir(wow_dir: &Path) -> anyhow::Result<ow_render::palett
     let pic_dir = wow_dir.join("PIC");
     if !pic_dir.exists() {
         // Try case-insensitive
-        let pic_dir = find_subdir_case_insensitive(wow_dir, "PIC")
-            .ok_or_else(|| anyhow::anyhow!("WOW/PIC/ directory not found in {}", wow_dir.display()))?;
+        let pic_dir = find_subdir_case_insensitive(wow_dir, "PIC").ok_or_else(|| {
+            anyhow::anyhow!("WOW/PIC/ directory not found in {}", wow_dir.display())
+        })?;
         return load_first_pcx_palette(&pic_dir);
     }
     load_first_pcx_palette(&pic_dir)
@@ -399,16 +393,14 @@ fn load_mission_map(
         .ok_or_else(|| anyhow::anyhow!("WOW/MAPS/ directory not found"))?;
 
     let scen_name = format!("SCEN{mission}");
-    let scen_dir = find_subdir_case_insensitive(&maps_dir, &scen_name)
-        .ok_or_else(|| anyhow::anyhow!("{scen_name}/ directory not found in {}", maps_dir.display()))?;
+    let scen_dir = find_subdir_case_insensitive(&maps_dir, &scen_name).ok_or_else(|| {
+        anyhow::anyhow!("{scen_name}/ directory not found in {}", maps_dir.display())
+    })?;
 
     debug!(scen_dir = %scen_dir.display(), "found scenario directory");
 
     // Try SCEN{n}.MAP first, then SCEN{n}A.MAP
-    let candidates = [
-        format!("SCEN{mission}.MAP"),
-        format!("SCEN{mission}A.MAP"),
-    ];
+    let candidates = [format!("SCEN{mission}.MAP"), format!("SCEN{mission}A.MAP")];
 
     for candidate in &candidates {
         if let Some(path) = find_file_case_insensitive(&scen_dir, candidate) {

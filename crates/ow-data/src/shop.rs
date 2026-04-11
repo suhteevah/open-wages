@@ -148,7 +148,9 @@ fn extract_field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
     // The value is the next whitespace-delimited token. We trim leading spaces
     // to handle both `KEY:val` and `KEY: val` formats uniformly.
     let trimmed = after_key.trim_start();
-    let end = trimmed.find(|c: char| c.is_whitespace()).unwrap_or(trimmed.len());
+    let end = trimmed
+        .find(|c: char| c.is_whitespace())
+        .unwrap_or(trimmed.len());
     if end == 0 {
         return None;
     }
@@ -206,37 +208,36 @@ pub fn parse_shop_inventory(path: &Path) -> Result<ShopInventory, ShopError> {
         // which are valid gameplay values. We stop here rather than trying to
         // parse the EMPTY status (which would fail our status enum).
         if name.eq_ignore_ascii_case("Empty") {
-            debug!(line = name_lineno, "Reached Empty terminator entry, stopping");
+            debug!(
+                line = name_lineno,
+                "Reached Empty terminator entry, stopping"
+            );
             break;
         }
 
         trace!(line = name_lineno, name = %name, "Parsing shop item");
 
         // Parse STOCK.
-        let stock_str = extract_field(data_raw, "STOCK").ok_or_else(|| ShopError::MissingStock {
+        let stock_str =
+            extract_field(data_raw, "STOCK").ok_or_else(|| ShopError::MissingStock {
+                line: data_lineno,
+                text: data_raw.to_string(),
+            })?;
+        let stock: u32 = stock_str.parse().map_err(|_| ShopError::InvalidStock {
             line: data_lineno,
-            text: data_raw.to_string(),
+            text: stock_str.to_string(),
         })?;
-        let stock: u32 =
-            stock_str
-                .parse()
-                .map_err(|_| ShopError::InvalidStock {
-                    line: data_lineno,
-                    text: stock_str.to_string(),
-                })?;
 
         // Parse PRICE.
-        let price_str = extract_field(data_raw, "PRICE").ok_or_else(|| ShopError::MissingPrice {
+        let price_str =
+            extract_field(data_raw, "PRICE").ok_or_else(|| ShopError::MissingPrice {
+                line: data_lineno,
+                text: data_raw.to_string(),
+            })?;
+        let price: u32 = price_str.parse().map_err(|_| ShopError::InvalidPrice {
             line: data_lineno,
-            text: data_raw.to_string(),
+            text: price_str.to_string(),
         })?;
-        let price: u32 =
-            price_str
-                .parse()
-                .map_err(|_| ShopError::InvalidPrice {
-                    line: data_lineno,
-                    text: price_str.to_string(),
-                })?;
 
         // Parse STATUS.
         let status_str =

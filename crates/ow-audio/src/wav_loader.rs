@@ -89,8 +89,7 @@ pub fn scan_wav_directory(wav_dir: &Path) -> Result<SoundCatalog, AudioError> {
 
     let mut effects = HashMap::new();
 
-    let entries =
-        std::fs::read_dir(wav_dir).map_err(|e| AudioError::io(wav_dir, e))?;
+    let entries = std::fs::read_dir(wav_dir).map_err(|e| AudioError::io(wav_dir, e))?;
 
     for entry in entries {
         let entry = entry.map_err(|e| AudioError::io(wav_dir, e))?;

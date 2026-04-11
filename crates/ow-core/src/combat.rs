@@ -292,8 +292,8 @@ mod tests {
     fn initiative_order_highest_first() {
         let units = vec![
             make_unit(1, Faction::Player, 20, 20), // init 40
-            make_unit(2, Faction::Enemy, 50, 40),   // init 90
-            make_unit(3, Faction::Player, 30, 30),  // init 60
+            make_unit(2, Faction::Enemy, 50, 40),  // init 90
+            make_unit(3, Faction::Player, 30, 30), // init 60
         ];
 
         let mut combat = CombatState::new(units);
@@ -313,7 +313,7 @@ mod tests {
     fn dead_units_skipped() {
         let units = vec![
             make_unit(1, Faction::Player, 50, 50), // init 100
-            make_unit(2, Faction::Enemy, 40, 40),   // init 80
+            make_unit(2, Faction::Enemy, 40, 40),  // init 80
         ];
 
         let mut combat = CombatState::new(units);
@@ -331,10 +331,10 @@ mod tests {
     #[test]
     fn mixed_factions_interleaved() {
         let units = vec![
-            make_unit(1, Faction::Player, 30, 30),  // 60
-            make_unit(2, Faction::Enemy, 50, 50),    // 100
-            make_unit(3, Faction::Player, 40, 40),   // 80
-            make_unit(4, Faction::Enemy, 35, 35),    // 70
+            make_unit(1, Faction::Player, 30, 30), // 60
+            make_unit(2, Faction::Enemy, 50, 50),  // 100
+            make_unit(3, Faction::Player, 40, 40), // 80
+            make_unit(4, Faction::Enemy, 35, 35),  // 70
         ];
 
         let mut combat = CombatState::new(units);

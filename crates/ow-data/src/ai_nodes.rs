@@ -108,13 +108,12 @@ pub fn parse_ai_nodes(path: &Path) -> Result<AiNodeGraph, AiNodesError> {
         if total_nodes.is_none() {
             // Format: "<count> ; Total # Of Nodes In The File"
             let count_str = line.split(';').next().unwrap_or("").trim();
-            let count: usize =
-                count_str
-                    .parse()
-                    .map_err(|_| AiNodesError::InvalidNodeCount {
-                        line: line_num,
-                        detail: format!("'{count_str}' is not a valid integer"),
-                    })?;
+            let count: usize = count_str
+                .parse()
+                .map_err(|_| AiNodesError::InvalidNodeCount {
+                    line: line_num,
+                    detail: format!("'{count_str}' is not a valid integer"),
+                })?;
             info!("declared node count: {count}");
             total_nodes = Some(count);
             nodes.reserve(count);
@@ -307,7 +306,10 @@ mod tests {
 ";
         let f = write_temp_file(data);
         let err = parse_ai_nodes(f.path()).unwrap_err();
-        assert!(matches!(err, AiNodesError::InvalidFieldCount { found: 4, .. }));
+        assert!(matches!(
+            err,
+            AiNodesError::InvalidFieldCount { found: 4, .. }
+        ));
     }
 
     #[test]
@@ -351,6 +353,9 @@ mod tests {
 ";
         let f = write_temp_file(data);
         let err = parse_ai_nodes(f.path()).unwrap_err();
-        assert!(matches!(err, AiNodesError::InvalidFieldCount { found: 9, .. }));
+        assert!(matches!(
+            err,
+            AiNodesError::InvalidFieldCount { found: 9, .. }
+        ));
     }
 }

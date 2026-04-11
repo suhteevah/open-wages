@@ -183,10 +183,7 @@ pub fn parse_hit_table(path: &Path) -> Result<HitTable, TargetError> {
 
             // Try to parse all tokens as i64. If any fail, skip this section
             // (it likely contains period-separated float values).
-            let parsed: Result<Vec<i64>, _> = tokens
-                .iter()
-                .map(|tok| tok.parse::<i64>())
-                .collect();
+            let parsed: Result<Vec<i64>, _> = tokens.iter().map(|tok| tok.parse::<i64>()).collect();
 
             match parsed {
                 Ok(row) => {

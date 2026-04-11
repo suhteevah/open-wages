@@ -7,9 +7,9 @@
 //! This module decodes PCX run-length encoding into raw RGBA pixel data
 //! and uploads it as an SDL2 texture for display.
 
+use sdl2::rect::Rect;
 use sdl2::render::{Canvas, Texture, TextureCreator};
 use sdl2::video::{Window, WindowContext};
-use sdl2::rect::Rect;
 use tracing::{debug, info};
 
 /// A decoded PCX image ready for display.
@@ -38,7 +38,10 @@ pub fn decode_pcx(data: &[u8]) -> Result<PcxImage, String> {
     // -- Parse header --
     // Byte 0: manufacturer (0x0A = ZSoft)
     if data[0] != 0x0A {
-        return Err(format!("Bad PCX magic: expected 0x0A, got 0x{:02X}", data[0]));
+        return Err(format!(
+            "Bad PCX magic: expected 0x0A, got 0x{:02X}",
+            data[0]
+        ));
     }
 
     // Bytes 4-7: window coordinates (xmin, ymin) as u16 LE
@@ -56,10 +59,7 @@ pub fn decode_pcx(data: &[u8]) -> Result<PcxImage, String> {
     // Bytes 66-67: bytes per scanline per plane (u16 LE)
     let bytes_per_line = u16::from_le_bytes([data[66], data[67]]) as usize;
 
-    debug!(
-        width, height, planes, bytes_per_line,
-        "PCX header parsed"
-    );
+    debug!(width, height, planes, bytes_per_line, "PCX header parsed");
 
     // -- Extract palette from trailing 769 bytes --
     let palette_start = data.len() - 769;
@@ -108,7 +108,7 @@ pub fn decode_pcx(data: &[u8]) -> Result<PcxImage, String> {
                     // ARGB8888 on little-endian x86: memory bytes [B, G, R, A].
                     rgba[dst] = palette[pal_idx * 3 + 2]; // B
                     rgba[dst + 1] = palette[pal_idx * 3 + 1]; // G
-                    rgba[dst + 2] = palette[pal_idx * 3];     // R
+                    rgba[dst + 2] = palette[pal_idx * 3]; // R
                     rgba[dst + 3] = 255; // A
                 }
                 x += 1;
@@ -117,7 +117,11 @@ pub fn decode_pcx(data: &[u8]) -> Result<PcxImage, String> {
     }
 
     info!(width, height, "PCX image decoded");
-    Ok(PcxImage { width, height, rgba_data: rgba })
+    Ok(PcxImage {
+        width,
+        height,
+        rgba_data: rgba,
+    })
 }
 
 /// Load a PCX file from disk and decode it.
@@ -154,7 +158,8 @@ pub fn pcx_to_texture<'a>(
             bmask: 0x000000FF,
             amask: 0xFF000000,
         },
-    ).map_err(|e| format!("Surface creation failed: {e}"))?;
+    )
+    .map_err(|e| format!("Surface creation failed: {e}"))?;
 
     let texture = texture_creator
         .create_texture_from_surface(&surface)

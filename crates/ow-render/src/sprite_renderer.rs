@@ -102,7 +102,13 @@ impl<'tc> SpriteRenderer<'tc> {
         // Step 4: Enable alpha blending so transparent pixels (A=0) are not drawn.
         texture.set_blend_mode(sdl2::render::BlendMode::Blend);
 
-        trace!(key, w, h, rgba_bytes = rgba.len(), "texture created and cached");
+        trace!(
+            key,
+            w,
+            h,
+            rgba_bytes = rgba.len(),
+            "texture created and cached"
+        );
 
         self.cache.insert(key, texture);
         Ok(())

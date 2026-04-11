@@ -97,17 +97,18 @@ pub fn parse_equipment(path: &Path) -> Result<Vec<Equipment>, EquipError> {
 /// Extract the `PEN:` value from a data line.
 fn parse_pen(line: usize, text: &str) -> Result<u32, EquipError> {
     let upper = text.to_uppercase();
-    let pen_pos = upper
-        .find("PEN:")
-        .ok_or_else(|| EquipError::MissingPen {
-            line,
-            text: text.to_string(),
-        })?;
-    let after = &text[pen_pos + 4..];
-    let token = after.split_whitespace().next().ok_or_else(|| EquipError::InvalidPen {
+    let pen_pos = upper.find("PEN:").ok_or_else(|| EquipError::MissingPen {
         line,
         text: text.to_string(),
     })?;
+    let after = &text[pen_pos + 4..];
+    let token = after
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| EquipError::InvalidPen {
+            line,
+            text: text.to_string(),
+        })?;
     token.parse::<u32>().map_err(|_| EquipError::InvalidPen {
         line,
         text: text.to_string(),
@@ -117,17 +118,18 @@ fn parse_pen(line: usize, text: &str) -> Result<u32, EquipError> {
 /// Extract the `ENC:` value from a data line.
 fn parse_enc(line: usize, text: &str) -> Result<u32, EquipError> {
     let upper = text.to_uppercase();
-    let enc_pos = upper
-        .find("ENC:")
-        .ok_or_else(|| EquipError::MissingEnc {
-            line,
-            text: text.to_string(),
-        })?;
-    let after = &text[enc_pos + 4..];
-    let token = after.split_whitespace().next().ok_or_else(|| EquipError::InvalidEnc {
+    let enc_pos = upper.find("ENC:").ok_or_else(|| EquipError::MissingEnc {
         line,
         text: text.to_string(),
     })?;
+    let after = &text[enc_pos + 4..];
+    let token = after
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| EquipError::InvalidEnc {
+            line,
+            text: text.to_string(),
+        })?;
     token.parse::<u32>().map_err(|_| EquipError::InvalidEnc {
         line,
         text: text.to_string(),
@@ -148,7 +150,8 @@ mod tests {
 
     #[test]
     fn test_parse_basic() {
-        let data = "Kevlar Vest\r\nPEN: 10    ENC: 20\r\nFirst Aid Kit\r\nPEN: 0    ENC: 5\r\n~\r\n";
+        let data =
+            "Kevlar Vest\r\nPEN: 10    ENC: 20\r\nFirst Aid Kit\r\nPEN: 0    ENC: 5\r\n~\r\n";
         let f = write_temp_file(data);
         let items = parse_equipment(f.path()).unwrap();
         assert_eq!(items.len(), 2);

@@ -102,13 +102,7 @@ pub fn validate_game_data(data_dir: &Path) -> anyhow::Result<()> {
         required_files.push(format!("WOW/DATA/LOCK{i:02}.DAT"));
     }
 
-    let required_dirs: Vec<&str> = vec![
-        "WOW/ANIM",
-        "WOW/MAPS",
-        "WOW/SPR",
-        "WOW/WAV",
-        "WOW/MIDI",
-    ];
+    let required_dirs: Vec<&str> = vec!["WOW/ANIM", "WOW/MAPS", "WOW/SPR", "WOW/WAV", "WOW/MIDI"];
 
     let mut missing: Vec<String> = Vec::new();
 
@@ -175,7 +169,13 @@ mod tests {
         fs::create_dir_all(&data_dir).unwrap();
 
         // Core files
-        for name in &["MERCS.DAT", "WEAPONS.DAT", "EQUIP.DAT", "ENGWOW.DAT", "TARGET.DAT"] {
+        for name in &[
+            "MERCS.DAT",
+            "WEAPONS.DAT",
+            "EQUIP.DAT",
+            "ENGWOW.DAT",
+            "TARGET.DAT",
+        ] {
             fs::write(data_dir.join(name), "test").unwrap();
         }
 
@@ -218,7 +218,13 @@ mod tests {
         let data_dir = tmp.path().join("wow/data");
         fs::create_dir_all(&data_dir).unwrap();
 
-        for name in &["mercs.dat", "weapons.dat", "equip.dat", "engwow.dat", "target.dat"] {
+        for name in &[
+            "mercs.dat",
+            "weapons.dat",
+            "equip.dat",
+            "engwow.dat",
+            "target.dat",
+        ] {
             fs::write(data_dir.join(name), "test").unwrap();
         }
 

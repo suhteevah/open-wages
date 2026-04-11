@@ -9,15 +9,15 @@
 //! - [`tile_renderer`] — Isometric tile map renderer (TIL-based)
 //! - [`viewer`] — Interactive sprite viewer (developer tool)
 
+pub mod anim_controller;
 pub mod camera;
+pub mod hud;
 pub mod iso_math;
 pub mod palette;
-pub mod sprite_renderer;
-pub mod tile_renderer;
-pub mod viewer;
-pub mod anim_controller;
-pub mod unit_renderer;
-pub mod hud;
-pub mod ui;
-pub mod text;
 pub mod pcx;
+pub mod sprite_renderer;
+pub mod text;
+pub mod tile_renderer;
+pub mod ui;
+pub mod unit_renderer;
+pub mod viewer;

@@ -16,7 +16,10 @@ use tracing::info;
 use walkdir::WalkDir;
 
 #[derive(Parser)]
-#[command(name = "survey", about = "Survey and classify all files in a game directory")]
+#[command(
+    name = "survey",
+    about = "Survey and classify all files in a game directory"
+)]
 struct Args {
     /// Path to the original game directory
     game_dir: PathBuf,

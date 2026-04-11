@@ -164,7 +164,12 @@ fn validate_mercs(dir: &Path, results: &mut Vec<ValidationResult>) {
                 let max_rating = mercs.iter().map(|m| m.rating).max().unwrap_or(0);
                 results.push(ValidationResult::ok(
                     label,
-                    format!("{} mercs, rating {}-{}", mercs.len(), min_rating, max_rating),
+                    format!(
+                        "{} mercs, rating {}-{}",
+                        mercs.len(),
+                        min_rating,
+                        max_rating
+                    ),
                 ));
             }
             Err(e) => {
@@ -184,15 +189,13 @@ fn validate_weapons(dir: &Path, results: &mut Vec<ValidationResult>) {
                 // Count weapons per category.
                 let mut categories: HashMap<String, usize> = HashMap::new();
                 for w in &weapons {
-                    *categories.entry(format!("{:?}", w.weapon_type)).or_insert(0) += 1;
+                    *categories
+                        .entry(format!("{:?}", w.weapon_type))
+                        .or_insert(0) += 1;
                 }
                 results.push(ValidationResult::ok(
                     label,
-                    format!(
-                        "{} weapons, {} categories",
-                        weapons.len(),
-                        categories.len()
-                    ),
+                    format!("{} weapons, {} categories", weapons.len(), categories.len()),
                 ));
             }
             Err(e) => {
@@ -268,7 +271,10 @@ fn validate_target(dir: &Path, results: &mut Vec<ValidationResult>) {
 fn validate_buttons(dir: &Path, results: &mut Vec<ValidationResult>) {
     let btn_files = files_with_ext_recursive(dir, "BTN");
     if btn_files.is_empty() {
-        results.push(ValidationResult::err("Global: *.BTN files", "no .BTN files found"));
+        results.push(ValidationResult::err(
+            "Global: *.BTN files",
+            "no .BTN files found",
+        ));
         return;
     }
     let mut ok_count = 0usize;
@@ -425,11 +431,7 @@ fn validate_sprites(dir: &Path, results: &mut Vec<ValidationResult>) {
 // Per-mission validation
 // ---------------------------------------------------------------------------
 
-fn validate_mission_file(
-    dir: &Path,
-    nn: u8,
-    results: &mut Vec<ValidationResult>,
-) {
+fn validate_mission_file(dir: &Path, nn: u8, results: &mut Vec<ValidationResult>) {
     let nn_str = format!("{:02}", nn);
     let filename = format!("MSSN{}.DAT", nn_str);
     let label = format!("Mission {:02}: {}", nn, filename);
