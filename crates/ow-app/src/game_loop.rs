@@ -492,6 +492,10 @@ pub fn run_game_loop(
     let mut loaded_map: Option<ow_data::map_loader::GameMap> = None;
     let mut mission_iso_config: Option<IsoConfig> = None;
 
+    // Soldier sprite texture decoded from ANIM/JUNGSLD.DAT frame 1000
+    // (south-facing idle pose). Used to render player mercs on the mission map.
+    let mut soldier_texture: Option<Texture> = None;
+
     // Enemy units generated from mission data. Stored here so they persist
     // across the deployment and combat phases.
     let mut enemy_units: Vec<ow_core::mission_setup::EnemyUnit> = Vec::new();
@@ -757,6 +761,71 @@ pub fn run_game_loop(
                                             } else {
                                                 warn!(path = %obj_path.display(), "OBJ sprite file not found");
                                             }
+
+                                            // Load soldier sprite from ANIM/JUNGSLD.DAT
+                                            // Frame 1000 is a south-facing idle pose.
+                                            let anim_dir = data_dir.join("WOW").join("ANIM");
+                                            let sld_path = anim_dir.join("JUNGSLD.DAT");
+                                            if sld_path.exists() {
+                                                match ow_data::sprite::parse_sprite_file(&sld_path) {
+                                                    Ok(sld_sheet) => {
+                                                        info!(
+                                                            frames = sld_sheet.file_header.sprite_count,
+                                                            "JUNGSLD.DAT soldier sprite sheet loaded"
+                                                        );
+                                                        let frame_idx: usize = 1000;
+                                                        if frame_idx < sld_sheet.frames.len() {
+                                                            let frame = &sld_sheet.frames[frame_idx];
+                                                            let fw = frame.header.width as u32;
+                                                            let fh = frame.header.height as u32;
+                                                            info!(
+                                                                frame = frame_idx,
+                                                                width = fw,
+                                                                height = fh,
+                                                                origin_x = frame.header.origin_x,
+                                                                origin_y = frame.header.origin_y,
+                                                                "decoding soldier idle frame"
+                                                            );
+                                                            match ow_data::sprite::decode_rle(
+                                                                &frame.compressed_data,
+                                                                frame.header.width,
+                                                                frame.header.height,
+                                                                frame_idx,
+                                                            ) {
+                                                                Ok(pixels) => {
+                                                                    let rgba = ow_render::palette::apply_palette_with_brightness(&pixels, &pal, 1.5);
+                                                                    match texture_creator.create_texture_static(
+                                                                        sdl2::pixels::PixelFormatEnum::RGBA32,
+                                                                        fw,
+                                                                        fh,
+                                                                    ) {
+                                                                        Ok(mut tex) => {
+                                                                            tex.set_blend_mode(sdl2::render::BlendMode::Blend);
+                                                                            if let Err(e) = tex.update(None, &rgba, (fw * 4) as usize) {
+                                                                                warn!("Failed to upload soldier texture: {e}");
+                                                                            } else {
+                                                                                info!("Soldier sprite texture ready (frame {frame_idx})");
+                                                                                soldier_texture = Some(tex);
+                                                                            }
+                                                                        }
+                                                                        Err(e) => warn!("Failed to create soldier texture: {e}"),
+                                                                    }
+                                                                }
+                                                                Err(e) => warn!("RLE decode failed for soldier frame {frame_idx}: {e}"),
+                                                            }
+                                                        } else {
+                                                            warn!(
+                                                                frame_idx,
+                                                                total = sld_sheet.frames.len(),
+                                                                "soldier frame index out of range"
+                                                            );
+                                                        }
+                                                    }
+                                                    Err(e) => warn!("Failed to load JUNGSLD.DAT: {e}"),
+                                                }
+                                            } else {
+                                                warn!(path = %sld_path.display(), "JUNGSLD.DAT not found");
+                                            }
                                         }
                                     }
                                     Err(e) => warn!("Palette error: {e}"),
@@ -835,6 +904,7 @@ pub fn run_game_loop(
             &obj_renderer,
             &loaded_map,
             &mission_iso_config,
+            &soldier_texture,
         );
 
         // Title bar shows the current phase (placeholder for real UI)
@@ -2134,6 +2204,7 @@ fn render_phase(
     obj_renderer: &Option<ow_render::tile_renderer::TileMapRenderer>,
     loaded_map: &Option<ow_data::map_loader::GameMap>,
     mission_iso: &Option<IsoConfig>,
+    soldier_texture: &Option<Texture>,
 ) {
     match &game.phase_handler {
         PhaseHandler::Office { sub_phase } => {
@@ -2151,6 +2222,7 @@ fn render_phase(
                 text,
                 tc,
                 &game.enemies,
+                soldier_texture,
             );
         }
         PhaseHandler::Combat(_) => {
@@ -2164,6 +2236,7 @@ fn render_phase(
                 text,
                 tc,
                 &game.enemies,
+                soldier_texture,
             );
         }
         PhaseHandler::Extraction => render_extraction(game, canvas),
@@ -2714,6 +2787,7 @@ fn render_mission_map(
     _text: &TextRenderer,
     _tc: &TextureCreator<WindowContext>,
     enemies: &[ow_core::mission_setup::EnemyUnit],
+    soldier_texture: &Option<Texture>,
 ) {
     // If we have real tile data, render the actual map. Otherwise fall back
     // to the wireframe placeholder grid.
@@ -2816,23 +2890,65 @@ fn render_mission_map(
             let screen = game.camera.world_to_screen(world);
 
             let is_selected = selected_id == Some(merc.id);
-            let color = if is_selected {
-                Color::RGB(255, 255, 0) // Yellow = selected unit
+
+            if let Some(sld_tex) = soldier_texture {
+                // Draw the soldier sprite centered on the tile position.
+                // The sprite's origin (stored in the frame header) defines the
+                // anchor point — we position so that the origin aligns with the
+                // tile's screen position.
+                //
+                // JUNGSLD.DAT frames are 128x138 with origin (256, 148).
+                // The origin_x=256 is 2x the frame width (likely fixed-point or
+                // dual-purpose), so we use frame_width/2 as the horizontal anchor.
+                // The origin_y=148 places the anchor ~10px below the frame bottom,
+                // which positions the soldier's feet on the tile surface.
+                let query = sld_tex.query();
+                let sprite_w = query.width as f32;
+                let sprite_h = query.height as f32;
+
+                // Scale the sprite with the camera zoom
+                let draw_w = (sprite_w * game.camera.zoom) as u32;
+                let draw_h = (sprite_h * game.camera.zoom) as u32;
+
+                // Anchor: center horizontally on tile, bottom of frame at tile surface
+                let anchor_x = sprite_w / 2.0; // horizontal center of frame
+                let anchor_y = sprite_h;        // bottom of frame
+
+                let draw_x = screen.x - (anchor_x * game.camera.zoom);
+                let draw_y = screen.y - (anchor_y * game.camera.zoom);
+
+                let dst = Rect::new(draw_x as i32, draw_y as i32, draw_w, draw_h);
+                canvas.copy(sld_tex, None, dst).ok();
+
+                // Draw selection indicator under selected unit
+                if is_selected {
+                    canvas.set_draw_color(Color::RGB(255, 255, 0));
+                    canvas
+                        .draw_rect(Rect::new(
+                            draw_x as i32 - 1,
+                            draw_y as i32 - 1,
+                            draw_w + 2,
+                            draw_h + 2,
+                        ))
+                        .ok();
+                }
             } else {
-                Color::RGB(0, 220, 0) // Green = your mercs
-            };
+                // Fallback: colored squares when no soldier sprite is loaded
+                let color = if is_selected {
+                    Color::RGB(255, 255, 0)
+                } else {
+                    Color::RGB(0, 220, 0)
+                };
 
-            // Draw a small filled square for each merc
-            canvas.set_draw_color(color);
-            canvas
-                .fill_rect(Rect::new(screen.x as i32 - 6, screen.y as i32 - 6, 12, 12))
-                .ok();
-
-            // Draw a dark border for visibility
-            canvas.set_draw_color(Color::RGB(0, 0, 0));
-            canvas
-                .draw_rect(Rect::new(screen.x as i32 - 6, screen.y as i32 - 6, 12, 12))
-                .ok();
+                canvas.set_draw_color(color);
+                canvas
+                    .fill_rect(Rect::new(screen.x as i32 - 6, screen.y as i32 - 6, 12, 12))
+                    .ok();
+                canvas.set_draw_color(Color::RGB(0, 0, 0));
+                canvas
+                    .draw_rect(Rect::new(screen.x as i32 - 6, screen.y as i32 - 6, 12, 12))
+                    .ok();
+            }
         }
     }
 
