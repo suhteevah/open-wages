@@ -148,6 +148,58 @@ pub struct GameLoop {
     pub mission_iso: Option<IsoConfig>,
     /// Enemy units for the current mission.
     pub enemies: Vec<ow_core::mission_setup::EnemyUnit>,
+    /// Combat message log (max 8 entries, newest at bottom). Color-coded by type.
+    pub combat_log: Vec<CombatLogEntry>,
+}
+
+/// Maximum number of combat log entries displayed on screen.
+const COMBAT_LOG_MAX: usize = 8;
+
+/// A single entry in the combat message log, with color-coding info.
+#[derive(Debug, Clone)]
+pub struct CombatLogEntry {
+    /// The message text to display.
+    pub text: String,
+    /// The category determines the display color.
+    pub kind: CombatLogKind,
+}
+
+/// Color categories for combat log entries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CombatLogKind {
+    /// Player hit on enemy — green.
+    PlayerHit,
+    /// Enemy hit on player merc — red.
+    EnemyHit,
+    /// Any miss — gray.
+    Miss,
+    /// A unit was killed — yellow.
+    Kill,
+    /// Informational (movement, round changes) — white.
+    Info,
+}
+
+impl CombatLogKind {
+    /// Return the SDL2 color for this log category.
+    fn color(self) -> Color {
+        match self {
+            CombatLogKind::PlayerHit => Color::RGB(80, 220, 80),
+            CombatLogKind::EnemyHit => Color::RGB(220, 60, 60),
+            CombatLogKind::Miss => Color::RGB(160, 160, 160),
+            CombatLogKind::Kill => Color::RGB(255, 220, 50),
+            CombatLogKind::Info => Color::RGB(200, 200, 200),
+        }
+    }
+}
+
+/// Push a message to the combat log, trimming to [`COMBAT_LOG_MAX`] entries.
+fn log_combat(game: &mut GameLoop, msg: String, kind: CombatLogKind) {
+    debug!(combat_log = %msg, "Combat log entry");
+    game.combat_log.push(CombatLogEntry { text: msg, kind });
+    if game.combat_log.len() > COMBAT_LOG_MAX {
+        let excess = game.combat_log.len() - COMBAT_LOG_MAX;
+        game.combat_log.drain(..excess);
+    }
 }
 
 impl GameLoop {
@@ -169,6 +221,7 @@ impl GameLoop {
             window_height: WINDOW_HEIGHT,
             mission_iso: None,
             enemies: Vec::new(),
+            combat_log: Vec::new(),
         }
     }
 }
@@ -311,6 +364,7 @@ pub fn run_game_loop(
     // -- Mission map resources (loaded when entering deployment) --
     // These are Option because they don't exist until a mission starts.
     let mut tile_renderer: Option<ow_render::tile_renderer::TileMapRenderer> = None;
+    let mut obj_renderer: Option<ow_render::tile_renderer::TileMapRenderer> = None;
     let mut loaded_map: Option<ow_data::map_loader::GameMap> = None;
     let mut mission_iso_config: Option<IsoConfig> = None;
 
@@ -470,6 +524,40 @@ pub fn run_game_loop(
                                                     game.camera.x = mid_x - (game.window_width as f32 / 2.0);
                                                     game.camera.y = mid_y - (game.window_height as f32 / 2.0);
                                                     tile_renderer = Some(tr);
+
+                                                    // Load the OBJ sprite sheet for map objects
+                                                    // (buildings, walls, fences, trees).
+                                                    // Same sprite container format as TIL, lives
+                                                    // in the same SPR/SCEN{n}/ directory.
+                                                    let obj_name = ow_data::map_loader::filename_from_build_path(
+                                                        &map.asset_refs.object_sprite_path);
+                                                    let obj_path = spr_scen_dir.join(obj_name);
+                                                    if obj_path.exists() {
+                                                        match ow_data::sprite::parse_sprite_file(&obj_path) {
+                                                            Ok(obj_sheet) => {
+                                                                info!(
+                                                                    sprites = obj_sheet.file_header.sprite_count,
+                                                                    path = %obj_path.display(),
+                                                                    "OBJ sprite sheet loaded"
+                                                                );
+                                                                let mut or = ow_render::tile_renderer::TileMapRenderer::new(&texture_creator);
+                                                                if let Err(e) = or.load_tileset(&obj_sheet, &pal) {
+                                                                    warn!("Failed to load OBJ textures: {e}");
+                                                                } else {
+                                                                    info!(
+                                                                        obj_tiles = or.tile_count(),
+                                                                        obj_w = or.tile_pixel_width(),
+                                                                        obj_h = or.tile_pixel_height(),
+                                                                        "OBJ textures ready"
+                                                                    );
+                                                                    obj_renderer = Some(or);
+                                                                }
+                                                            }
+                                                            Err(e) => warn!("Failed to load OBJ sheet {obj_name}: {e}"),
+                                                        }
+                                                    } else {
+                                                        warn!(path = %obj_path.display(), "OBJ sprite file not found");
+                                                    }
                                                 }
                                             }
                                             Err(e) => warn!("Palette error: {e}"),
@@ -532,7 +620,7 @@ pub fn run_game_loop(
         canvas.clear();
 
         render_phase(&game, &mut canvas, &text_renderer, &texture_creator, &ruleset, &office_texture,
-                     &tile_renderer, &loaded_map, &mission_iso_config);
+                     &tile_renderer, &obj_renderer, &loaded_map, &mission_iso_config);
 
         // Title bar shows the current phase (placeholder for real UI)
         let label = phase_label(&game.phase_handler);
@@ -1215,6 +1303,7 @@ fn handle_combat_input(game: &mut GameLoop, event: &Event) {
                 if let Some(eidx) = enemy_idx {
                     // SHOOT — deal damage to the enemy!
                     let attacker = game.game_state.team.iter().find(|m| m.id == unit_id);
+                    let attacker_name = attacker.map(|m| m.name.clone()).unwrap_or_else(|| format!("Unit_{unit_id}"));
                     let wsk = attacker.map(|m| m.wsk).unwrap_or(50);
 
                     // Simple hit chance based on weapon skill.
@@ -1222,6 +1311,10 @@ fn handle_combat_input(game: &mut GameLoop, event: &Event) {
                     let mut rng = rand::thread_rng();
                     let hit_roll: u32 = rng.gen_range(0..100);
                     let hit_chance = (wsk as u32).min(95);
+
+                    // Collect combat log message after resolving the shot so we
+                    // can call log_combat outside the mutable enemy borrow.
+                    let log_msg: (String, CombatLogKind);
 
                     let enemy = &mut game.enemies[eidx];
                     if hit_roll < hit_chance {
@@ -1245,6 +1338,17 @@ fn handle_combat_input(game: &mut GameLoop, event: &Event) {
 
                         if enemy.current_hp == 0 {
                             info!(target = %enemy.name, "Enemy KILLED!");
+                            log_msg = (
+                                format!("{attacker_name} hits {ename} for {damage} damage! {ename} KILLED!",
+                                        ename = enemy.name),
+                                CombatLogKind::Kill,
+                            );
+                        } else {
+                            log_msg = (
+                                format!("{attacker_name} hits {} for {damage} damage!",
+                                        enemy.name),
+                                CombatLogKind::PlayerHit,
+                            );
                         }
                     } else {
                         info!(
@@ -1254,11 +1358,18 @@ fn handle_combat_input(game: &mut GameLoop, event: &Event) {
                             needed = hit_chance,
                             "MISS!"
                         );
+                        log_msg = (
+                            format!("{attacker_name} misses {}!", enemy.name),
+                            CombatLogKind::Miss,
+                        );
                         // Still costs AP to shoot
                         if let Some(merc) = game.game_state.team.iter_mut().find(|m| m.id == unit_id) {
                             merc.current_ap = merc.current_ap.saturating_sub(8);
                         }
                     }
+
+                    // Push the combat log entry (outside the enemy borrow).
+                    log_combat(game, log_msg.0, log_msg.1);
                 } else {
                     // MOVE — teleport to the clicked tile, deduct AP.
                     if let Some(merc) = game.game_state.team.iter_mut().find(|m| m.id == unit_id) {
@@ -1310,6 +1421,7 @@ fn advance_initiative(game: &mut GameLoop) {
     if next_idx >= order_len {
         // All units acted this round — start new round.
         info!("Round complete -- starting new round");
+        log_combat(game, "--- New Round ---".to_string(), CombatLogKind::Info);
         next_idx = 0;
 
         // Reset AP for all player units
@@ -1384,6 +1496,7 @@ fn handle_debrief_input(game: &mut GameLoop, event: &Event) {
         // Clear mission state for next contract.
         game.game_state.current_mission = None;
         game.enemies.clear();
+        game.combat_log.clear();
         // Reset merc AP for next mission.
         for merc in &mut game.game_state.team {
             merc.reset_ap();
@@ -1485,49 +1598,64 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
             if !is_player {
                 // AI decision: find the nearest player merc and shoot them.
                 // If no merc in range, move toward the nearest one.
-                let enemy = game.enemies.iter().find(|e| e.id == id);
-                if let Some(enemy) = enemy {
-                    if enemy.current_hp == 0 {
+                //
+                // We collect snapshot data (name, position, wsk) to avoid
+                // holding borrows across log_combat / advance_initiative calls.
+                let enemy_snapshot = game.enemies.iter().find(|e| e.id == id)
+                    .map(|e| (e.name.clone(), e.current_hp, e.position, e.wsk));
+
+                if let Some((enemy_name, enemy_hp, enemy_pos_opt, enemy_wsk)) = enemy_snapshot {
+                    if enemy_hp == 0 {
                         // Dead enemy, skip turn
                         advance_initiative(game);
-                    } else if let Some(enemy_pos) = enemy.position {
+                    } else if let Some(enemy_pos) = enemy_pos_opt {
                         // Find nearest living player merc
                         let nearest_merc = game.game_state.team.iter()
                             .filter(|m| m.is_alive() && m.position.is_some())
                             .min_by_key(|m| {
                                 let mp = m.position.unwrap();
                                 (mp.x - enemy_pos.x).abs() + (mp.y - enemy_pos.y).abs()
-                            });
+                            })
+                            .map(|m| (m.id, m.name.clone(), m.position.unwrap()));
 
-                        if let Some(target) = nearest_merc {
-                            let tp = target.position.unwrap();
+                        if let Some((target_id, target_name, tp)) = nearest_merc {
                             let dist = (tp.x - enemy_pos.x).abs() + (tp.y - enemy_pos.y).abs();
 
                             if dist <= 15 {
                                 // In range — SHOOT!
                                 use rand::Rng;
                                 let mut rng = rand::thread_rng();
-                                let hit_chance = (enemy.wsk as u32).min(80);
+                                let hit_chance = (enemy_wsk as u32).min(80);
                                 let roll: u32 = rng.gen_range(0..100);
 
                                 if roll < hit_chance {
                                     let damage = rng.gen_range(3..15);
-                                    let target_id = target.id;
-                                    let target_name = target.name.clone();
                                     if let Some(merc) = game.game_state.team.iter_mut()
                                         .find(|m| m.id == target_id)
                                     {
                                         merc.current_hp = merc.current_hp.saturating_sub(damage);
                                         info!(
-                                            enemy = %enemy.name,
+                                            enemy = %enemy_name,
                                             target = %target_name,
                                             damage,
                                             remaining_hp = merc.current_hp,
                                             "Enemy HIT player merc!"
                                         );
+                                        if merc.current_hp == 0 {
+                                            log_combat(game,
+                                                format!("{enemy_name} hits {target_name} for {damage} damage! {target_name} KILLED!"),
+                                                CombatLogKind::Kill);
+                                        } else {
+                                            log_combat(game,
+                                                format!("{enemy_name} hits {target_name} for {damage} damage!"),
+                                                CombatLogKind::EnemyHit);
+                                        }
                                     }
                                 } else {
-                                    info!(enemy = %enemy.name, "Enemy MISSED!");
+                                    info!(enemy = %enemy_name, "Enemy MISSED!");
+                                    log_combat(game,
+                                        format!("{enemy_name} misses {target_name}!"),
+                                        CombatLogKind::Miss);
                                 }
                             } else {
                                 // Too far — move toward the target
@@ -1540,6 +1668,9 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
                                 if let Some(e) = game.enemies.iter_mut().find(|e| e.id == id) {
                                     e.position = Some(new_pos);
                                 }
+                                log_combat(game,
+                                    format!("{enemy_name} moves toward your team"),
+                                    CombatLogKind::Info);
                             }
                         }
                         advance_initiative(game);
@@ -1573,6 +1704,7 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
 
     if all_dead {
         warn!("All player mercs killed -- mission failed");
+        log_combat(game, "ALL MERCS DOWN -- MISSION FAILED!".to_string(), CombatLogKind::Kill);
         game.game_state.set_phase(GamePhase::Debrief);
         game.phase_handler = PhaseHandler::Debrief { success: false };
         return;
@@ -1584,6 +1716,7 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
 
     if all_enemies_dead {
         info!("All enemies eliminated — MISSION COMPLETE!");
+        log_combat(game, "All enemies eliminated -- MISSION COMPLETE!".to_string(), CombatLogKind::Kill);
         // Credit the mission bonus to funds.
         if let Some(ref mission_ctx) = game.game_state.current_mission {
             info!(mission = %mission_ctx.name, "Mission successful, transitioning to debrief");
@@ -1623,6 +1756,7 @@ fn render_phase(
     ruleset: &Ruleset,
     office_bg: &Option<Texture>,
     tile_renderer: &Option<ow_render::tile_renderer::TileMapRenderer>,
+    obj_renderer: &Option<ow_render::tile_renderer::TileMapRenderer>,
     loaded_map: &Option<ow_data::map_loader::GameMap>,
     mission_iso: &Option<IsoConfig>,
     ) {
@@ -1630,10 +1764,10 @@ fn render_phase(
         PhaseHandler::Office { sub_phase } => render_office(game, canvas, *sub_phase, text, tc, ruleset, office_bg),
         PhaseHandler::Travel { elapsed_ms } => render_travel(canvas, *elapsed_ms, text, tc),
         PhaseHandler::Deployment { .. } => {
-            render_mission_map(game, canvas, tile_renderer, loaded_map, mission_iso, text, tc, &game.enemies);
+            render_mission_map(game, canvas, tile_renderer, obj_renderer, loaded_map, mission_iso, text, tc, &game.enemies);
         }
         PhaseHandler::Combat(_) => {
-            render_mission_map(game, canvas, tile_renderer, loaded_map, mission_iso, text, tc, &game.enemies);
+            render_mission_map(game, canvas, tile_renderer, obj_renderer, loaded_map, mission_iso, text, tc, &game.enemies);
         }
         PhaseHandler::Extraction => render_extraction(game, canvas),
         PhaseHandler::Debrief { success } => render_debrief(game, canvas, *success, text, tc),
@@ -1908,6 +2042,7 @@ fn render_mission_map(
     game: &GameLoop,
     canvas: &mut Canvas<Window>,
     tile_renderer: &Option<ow_render::tile_renderer::TileMapRenderer>,
+    obj_renderer: &Option<ow_render::tile_renderer::TileMapRenderer>,
     loaded_map: &Option<ow_data::map_loader::GameMap>,
     mission_iso: &Option<IsoConfig>,
     _text: &TextRenderer,
@@ -1918,6 +2053,16 @@ fn render_mission_map(
     // to the wireframe placeholder grid.
     if let (Some(tr), Some(map), Some(iso)) = (tile_renderer, loaded_map, mission_iso) {
         tr.render_map(canvas, map, &game.camera, iso);
+
+        // OBJ sprite sheet is loaded and available for object rendering.
+        // Object placement data from the MAP's secondary arrays will be
+        // wired up in a follow-up — for now we just log availability.
+        if let Some(or) = obj_renderer {
+            trace!(
+                obj_tiles = or.tile_count(),
+                "OBJ renderer available — object placement pending"
+            );
+        }
     } else {
         render_placeholder_grid(canvas, &game.camera, &game.iso_config);
     }
@@ -1959,10 +2104,14 @@ fn render_mission_map(
         }
     }
 
-    // Draw enemy units as red squares.
+    // Draw enemy units — fog of war hides enemies beyond 20 tiles from all mercs.
+    let fow_range = 20i32;
     for enemy in enemies {
         if enemy.current_hp == 0 { continue; }
         if let Some(pos) = enemy.position {
+            let seen = game.game_state.team.iter().any(|m| m.is_alive()
+                && m.position.map(|mp| (mp.x-pos.x).abs()+(mp.y-pos.y).abs() <= fow_range).unwrap_or(false));
+            if !seen { continue; }
             let iso_tile = TilePos { x: pos.x, y: pos.y };
             let world = iso.tile_to_screen(iso_tile);
             let screen = game.camera.world_to_screen(world);
@@ -1979,17 +2128,47 @@ fn render_mission_map(
         }
     }
 
-    // -- Simple combat HUD at bottom of screen --
+    // -- Combat HUD: bottom panel + combat log + turn indicator --
     if matches!(game.phase_handler, PhaseHandler::Combat(_)) {
         let (w, h) = (game.window_width, game.window_height);
 
-        // Dark panel at bottom
+        // ---- Turn indicator at top of screen ----
+        let is_ai = match &game.phase_handler {
+            PhaseHandler::Combat(c) => c.ai_acting,
+            _ => false,
+        };
+
+        // Semi-transparent banner at top center
         canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
-        canvas.set_draw_color(Color::RGBA(0, 0, 0, 200));
-        canvas.fill_rect(Rect::new(0, h as i32 - 60, w, 60)).ok();
+        canvas.set_draw_color(Color::RGBA(0, 0, 0, 180));
+        let banner_w: u32 = 220;
+        let banner_x = (w as i32 - banner_w as i32) / 2;
+        canvas.fill_rect(Rect::new(banner_x, 4, banner_w, 28)).ok();
         canvas.set_blend_mode(sdl2::render::BlendMode::None);
 
-        // Show selected unit info
+        if is_ai {
+            _text.draw(canvas, _tc, "ENEMY TURN",
+                banner_x + 10, 8, Color::RGB(220, 50, 50)).ok();
+        } else {
+            _text.draw(canvas, _tc, "YOUR TURN",
+                banner_x + 10, 8, Color::RGB(50, 220, 50)).ok();
+        }
+
+        // ---- Dark panel at bottom ----
+        let panel_height: u32 = 80;
+        canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
+        canvas.set_draw_color(Color::RGBA(0, 0, 0, 200));
+        canvas.fill_rect(Rect::new(0, h as i32 - panel_height as i32, w, panel_height)).ok();
+        canvas.set_blend_mode(sdl2::render::BlendMode::None);
+
+        // Thin top border on the panel
+        canvas.set_draw_color(Color::RGB(80, 80, 80));
+        canvas.draw_line(
+            sdl2::rect::Point::new(0, h as i32 - panel_height as i32),
+            sdl2::rect::Point::new(w as i32, h as i32 - panel_height as i32),
+        ).ok();
+
+        // ---- Selected unit info (left side) ----
         if let Some(sel_id) = selected_id {
             if let Some(merc) = game.game_state.team.iter().find(|m| m.id == sel_id) {
                 let info = format!(
@@ -1997,11 +2176,24 @@ fn render_mission_map(
                     merc.name, merc.current_hp, merc.max_hp,
                     merc.current_ap, merc.base_aps,
                 );
-                _text.draw(canvas, _tc, &info, 15, h as i32 - 40, Color::RGB(220, 220, 220)).ok();
+                _text.draw(canvas, _tc, &info, 15, h as i32 - (panel_height as i32) + 10,
+                    Color::RGB(220, 220, 220)).ok();
             }
         } else {
             _text.draw(canvas, _tc, "No unit selected | Tab=Next  Enter=NextPhase",
-                15, h as i32 - 40, Color::RGB(180, 180, 180)).ok();
+                15, h as i32 - (panel_height as i32) + 10, Color::RGB(180, 180, 180)).ok();
+        }
+
+        // ---- Combat log (right side of bottom panel) ----
+        // Draw up to COMBAT_LOG_MAX entries, small text, right-aligned area.
+        let log_x = (w as i32 / 2) + 40; // Right half of the panel
+        let log_start_y = h as i32 - (panel_height as i32) + 6;
+        let line_h = 9i32; // Tight spacing for small text
+
+        for (i, entry) in game.combat_log.iter().enumerate() {
+            let y_pos = log_start_y + (i as i32) * line_h;
+            let color = entry.kind.color();
+            _text.draw_small(canvas, _tc, &entry.text, log_x, y_pos, color).ok();
         }
     }
 
