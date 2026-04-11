@@ -1934,23 +1934,56 @@ fn render_office(
             ).ok();
         }
         OfficePhase::Equipment => {
-            text.draw_header(canvas, tc, "Equipment Catalog", 20, content_y, Color::RGB(220, 200, 100)).ok();
-            let mut y = content_y + 35;
+            text.draw_header(canvas, tc, "Equipment Catalog — Click weapon to lease", 20, content_y, Color::RGB(220, 200, 100)).ok();
 
-            // Show weapons
-            text.draw(canvas, tc, "--- WEAPONS ---", 20, y, Color::RGB(180, 140, 80)).ok();
-            y += 22;
+            // Left pane: weapon list (clickable)
+            let mut y = content_y + 35;
+            text.draw(canvas, tc, "--- AVAILABLE WEAPONS ---", 20, y, Color::RGB(180, 140, 80)).ok();
+            y += 20;
             let mut sorted_weapons: Vec<_> = ruleset.weapons.values().collect();
             sorted_weapons.sort_by_key(|w| format!("{:?}", w.weapon_type));
-            for w in sorted_weapons.iter().take(20) {
+            for w in sorted_weapons.iter().take(25) {
                 let line = format!(
-                    "{:<25} RNG:{:>3}  DMG:{:>2}  PEN:{:>3}  AP:{:>3}  ${:>6}",
+                    "{:<22} RNG:{:>2} DMG:{:>2} PEN:{:>2} AP:{:>2} ${:>5}",
                     w.name, w.weapon_range, w.damage_class, w.penetration, w.ap_cost, w.cost
                 );
                 text.draw_small(canvas, tc, &line, 20, y, Color::RGB(200, 200, 200)).ok();
                 y += 14;
-                if y > (content_y + content_h - 20) { break; }
+                if y > (content_y + content_h - 40) { break; }
             }
+
+            // Right pane: your team with their equipment
+            let team_x = (w / 2) as i32 + 20;
+            let mut ty = content_y + 35;
+            text.draw(canvas, tc, "--- YOUR TEAM ---", team_x, ty, Color::RGB(100, 180, 100)).ok();
+            ty += 20;
+            if game.game_state.team.is_empty() {
+                text.draw_small(canvas, tc, "No mercs hired yet", team_x, ty, Color::RGB(140, 140, 140)).ok();
+            } else {
+                for merc in &game.game_state.team {
+                    let equip_info = if merc.inventory.is_empty() {
+                        "  [UNARMED]".to_string()
+                    } else {
+                        format!("  [{}]", merc.inventory.iter()
+                            .map(|i| i.name.as_str())
+                            .collect::<Vec<_>>().join(", "))
+                    };
+                    let line = format!("{}{}", merc.name, equip_info);
+                    let color = if merc.inventory.is_empty() {
+                        Color::RGB(200, 100, 100) // Red = unarmed
+                    } else {
+                        Color::RGB(100, 200, 100) // Green = armed
+                    };
+                    text.draw_small(canvas, tc, &line, team_x, ty, color).ok();
+                    ty += 16;
+                }
+            }
+
+            // Equipment instructions
+            text.draw_small(canvas, tc,
+                "Equipment leasing coming soon — mercs currently fight unarmed",
+                20, content_y + content_h,
+                Color::RGB(100, 100, 100)).ok();
         }
         OfficePhase::Contracts => {
             text.draw_header(canvas, tc, "Available Contracts — Click to Accept", 20, content_y, Color::RGB(220, 200, 100)).ok();
@@ -2455,14 +2488,56 @@ fn render_debrief(game: &GameLoop, canvas: &mut Canvas<Window>, success: bool, t
     let killed = game.enemies.iter().filter(|e| e.current_hp == 0).count();
     let total_enemies = game.enemies.len();
 
-    text.draw(canvas, tc, &format!("Mercs survived: {survived}/{total}"), 200, y, Color::RGB(200, 200, 200)).ok();
-    y += 30;
-    text.draw(canvas, tc, &format!("Enemies eliminated: {killed}/{total_enemies}"), 200, y, Color::RGB(200, 200, 200)).ok();
-    y += 30;
-    text.draw(canvas, tc, &format!("Missions completed: {}", game.game_state.missions_completed), 200, y, Color::RGB(200, 200, 200)).ok();
-    y += 30;
-    text.draw(canvas, tc, &format!("Current funds: ${}", game.game_state.funds), 200, y, Color::RGB(200, 200, 200)).ok();
-    y += 50;
+    // -- Battle Results --
+    text.draw(canvas, tc, "BATTLE RESULTS", 200, y, Color::RGB(180, 180, 100)).ok();
+    y += 25;
+    text.draw(canvas, tc, &format!("  Mercs survived:      {survived}/{total}"), 200, y, Color::RGB(200, 200, 200)).ok();
+    y += 20;
+    text.draw(canvas, tc, &format!("  Enemies eliminated:  {killed}/{total_enemies}"), 200, y, Color::RGB(200, 200, 200)).ok();
+    y += 20;
+
+    let kia = total - survived;
+    let wia = game.game_state.team.iter().filter(|m| m.is_alive() && m.current_hp < m.max_hp).count();
+    text.draw(canvas, tc, &format!("  KIA: {}  WIA: {}", kia, wia), 200, y,
+        if kia > 0 { Color::RGB(255, 100, 100) } else { Color::RGB(100, 200, 100) }).ok();
+    y += 35;
+
+    // -- Financial Report (the accountant's fax) --
+    text.draw(canvas, tc, "FINANCIAL REPORT", 200, y, Color::RGB(180, 180, 100)).ok();
+    y += 25;
+
+    let advance = 324_000i64; // TODO: get from accepted contract
+    let bonus = if success { 200_000i64 } else { 0 };
+    let hiring_costs = game.game_state.team.len() as i64 * 50_000; // approximate
+    let medical = wia as i64 * 79_000; // WIA medical costs
+    let death_insurance = kia as i64 * 89_000; // KIA death payouts
+    let total_income = advance + bonus;
+    let total_expenses = hiring_costs + medical + death_insurance;
+    let profit = total_income - total_expenses;
+
+    text.draw(canvas, tc, &format!("  Contract advance:    ${:>12}", advance), 200, y, Color::RGB(150, 200, 150)).ok();
+    y += 18;
+    if success {
+        text.draw(canvas, tc, &format!("  Completion bonus:    ${:>12}", bonus), 200, y, Color::RGB(150, 200, 150)).ok();
+        y += 18;
+    }
+    text.draw(canvas, tc, &format!("  Hiring costs:       -${:>12}", hiring_costs), 200, y, Color::RGB(200, 150, 150)).ok();
+    y += 18;
+    if medical > 0 {
+        text.draw(canvas, tc, &format!("  Medical (WIA):      -${:>12}", medical), 200, y, Color::RGB(200, 150, 150)).ok();
+        y += 18;
+    }
+    if death_insurance > 0 {
+        text.draw(canvas, tc, &format!("  Death insurance:    -${:>12}", death_insurance), 200, y, Color::RGB(255, 100, 100)).ok();
+        y += 18;
+    }
+    text.draw(canvas, tc, "  ─────────────────────────────", 200, y, Color::RGB(100, 100, 100)).ok();
+    y += 18;
+    let profit_color = if profit >= 0 { Color::RGB(100, 255, 100) } else { Color::RGB(255, 100, 100) };
+    text.draw(canvas, tc, &format!("  NET PROFIT:          ${:>12}", profit), 200, y, profit_color).ok();
+    y += 25;
+    text.draw(canvas, tc, &format!("  Current funds:       ${:>12}", game.game_state.funds), 200, y, Color::RGB(200, 200, 200)).ok();
+    y += 35;
 
     text.draw(canvas, tc, "Press ENTER to return to office", 200, y, Color::RGB(150, 150, 180)).ok();
 }
