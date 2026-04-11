@@ -27,11 +27,13 @@
 //! The loop targets 60 fps with delta-time tracking. Delta is capped at 33 ms
 //! (floor of 30 fps) to prevent physics/animation explosions on hitches.
 
+use std::path::Path;
 use std::time::Instant;
 
 use anyhow::Result;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use sdl2::mixer::Music;
 use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
@@ -247,6 +249,87 @@ fn phase_handler_for(phase: &GamePhase) -> PhaseHandler {
 }
 
 // ---------------------------------------------------------------------------
+// MIDI music playback helpers
+// ---------------------------------------------------------------------------
+
+/// Default music volume: 50% of SDL2_mixer's 0–128 range.
+/// The original game's MIDI can be grating at full volume.
+const MUSIC_VOLUME: i32 = 64;
+
+/// Returns the MIDI track filename (stem only, no extension) appropriate for
+/// the given phase, or `None` if no music should play.
+///
+/// For mission phases (deployment, combat, extraction), the track is selected
+/// based on the current mission number (1–9). Falls back to `WOWMIS01` if the
+/// mission number is out of range or unknown.
+fn music_track_for_phase(handler: &PhaseHandler) -> Option<&'static str> {
+    match handler {
+        PhaseHandler::Office { .. } => Some("WOWOFICE"),
+        PhaseHandler::Travel { .. } => Some("WOWARIVE"),
+        PhaseHandler::Deployment { .. } => Some("WOWMIS01"),
+        PhaseHandler::Combat(_) => Some("WOWMIS01"),
+        PhaseHandler::Extraction => Some("WOWMIS01"),
+        PhaseHandler::Debrief { success: true } => Some("WOWDPARW"),
+        PhaseHandler::Debrief { success: false } => Some("WOWDPARL"),
+        PhaseHandler::Paused { .. } => None, // keep whatever was playing
+    }
+}
+
+/// Like [`music_track_for_phase`] but uses the mission number (1–9) to pick
+/// the correct `WOWMISxx` track instead of always defaulting to 01.
+fn music_track_for_phase_with_mission(
+    handler: &PhaseHandler,
+    mission_num: Option<u32>,
+) -> Option<String> {
+    match handler {
+        PhaseHandler::Deployment { .. }
+        | PhaseHandler::Combat(_)
+        | PhaseHandler::Extraction => {
+            let n = mission_num.unwrap_or(1).clamp(1, 9);
+            Some(format!("WOWMIS{n:02}"))
+        }
+        _ => music_track_for_phase(handler).map(String::from),
+    }
+}
+
+/// Try to load and play a MIDI track, returning the `Music` handle that must
+/// be kept alive for the duration of playback. Returns `None` (with a warning
+/// logged) if the file is missing or SDL2_mixer can't play it.
+fn start_music<'a>(midi_dir: &Path, track_name: &str) -> Option<Music<'a>> {
+    let mid_path = midi_dir.join(format!("{track_name}.MID"));
+    if !mid_path.exists() {
+        warn!(track = track_name, path = %mid_path.display(),
+              "MIDI file not found -- skipping music");
+        return None;
+    }
+    match Music::from_file(&mid_path) {
+        Ok(music) => {
+            Music::set_volume(MUSIC_VOLUME);
+            if let Err(e) = music.play(-1) {
+                warn!(track = track_name, error = %e,
+                      "SDL2_mixer failed to play MIDI -- continuing without music");
+                None
+            } else {
+                info!(track = track_name, volume = MUSIC_VOLUME,
+                      "Now playing MIDI track");
+                Some(music)
+            }
+        }
+        Err(e) => {
+            warn!(track = track_name, error = %e,
+                  "SDL2_mixer failed to load MIDI -- continuing without music");
+            None
+        }
+    }
+}
+
+/// Stop any currently playing music. Safe to call even if nothing is playing.
+fn stop_music() {
+    Music::halt();
+    debug!("Music halted");
+}
+
+// ---------------------------------------------------------------------------
 // Color palette for placeholder rendering
 // ---------------------------------------------------------------------------
 
@@ -340,6 +423,43 @@ pub fn run_game_loop(
         .map_err(|e| anyhow::anyhow!("Font loading failed: {e}"))?;
     let texture_creator = canvas.texture_creator();
 
+    // -----------------------------------------------------------------------
+    // MIDI music via SDL2_mixer
+    // -----------------------------------------------------------------------
+    let midi_dir = data_dir.join("WOW").join("MIDI");
+    let audio_available = match sdl2::mixer::open_audio(
+        44100,
+        sdl2::mixer::AUDIO_S16LSB,
+        2,
+        1024,
+    ) {
+        Ok(()) => {
+            info!("SDL2_mixer audio device opened (44100 Hz, S16LSB, stereo)");
+            true
+        }
+        Err(e) => {
+            warn!(error = %e, "SDL2_mixer failed to open audio -- continuing without music");
+            false
+        }
+    };
+
+    // Start initial music for whatever phase we launched into.
+    let mut current_music_track: Option<String> = None;
+    let mut _music_handle: Option<Music> = if audio_available {
+        let track = music_track_for_phase(&game.phase_handler);
+        if let Some(name) = track {
+            let handle = start_music(&midi_dir, name);
+            if handle.is_some() {
+                current_music_track = Some(name.to_string());
+            }
+            handle
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // Load the office background image — OFFICE.PCX is the main HQ screen.
     // The original game renders this as a 640x480 scene with clickable objects
     // (phone, fax, filing cabinet, pizza, etc.) overlaid on the background.
@@ -429,6 +549,40 @@ pub fn run_game_loop(
 
         // -- Update --
         update_phase(&mut game, delta_ms);
+
+        // -- Music transitions on phase change --
+        // Compare what we're currently playing to what the new phase wants.
+        // If they differ, stop old music and start the new track.
+        // Uses mission number for mission-phase track selection (WOWMIS01–09).
+        if audio_available {
+            let mission_num = game.game_state.current_mission.as_ref()
+                .and_then(|m| m.name.strip_prefix("MSSN"))
+                .and_then(|n| n.parse::<u32>().ok());
+            let wanted = music_track_for_phase_with_mission(&game.phase_handler, mission_num);
+            let need_change = match (&wanted, &current_music_track) {
+                // Pause: don't touch music at all.
+                _ if matches!(game.phase_handler, PhaseHandler::Paused { .. }) => false,
+                (Some(w), Some(c)) => w.as_str() != c.as_str(),
+                (Some(_), None) => true,
+                (None, Some(_)) => true,
+                (None, None) => false,
+            };
+            if need_change {
+                stop_music();
+                if let Some(track_name) = &wanted {
+                    let handle = start_music(&midi_dir, track_name);
+                    if handle.is_some() {
+                        current_music_track = Some(track_name.clone());
+                    } else {
+                        current_music_track = None;
+                    }
+                    _music_handle = handle;
+                } else {
+                    _music_handle = None;
+                    current_music_track = None;
+                }
+            }
+        }
 
         // -- Load mission map when entering deployment for the first time --
         // We check if we just transitioned to Deployment and haven't loaded a map yet.
@@ -639,6 +793,14 @@ pub fn run_game_loop(
                 (TARGET_FRAME_MS - frame_elapsed) as u64,
             ));
         }
+    }
+
+    // Clean up music before exit.
+    drop(_music_handle);
+    if audio_available {
+        stop_music();
+        sdl2::mixer::close_audio();
+        debug!("SDL2_mixer audio closed");
     }
 
     info!("Game loop exited cleanly");
@@ -912,6 +1074,53 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
                 return;
             }
 
+            // --- Equipment: clicking a weapon row leases it to the first unarmed merc ---
+            if current_sub == OfficePhase::Equipment {
+                // Weapon list starts at y=105 (content_y=50 + header=35 + section_header=20).
+                // Each row is 14px tall. Match the render order: sorted by weapon_type name.
+                let list_start_y = 105i32;
+                let row_h = 14i32;
+                let click_y = *y;
+
+                if click_y >= list_start_y {
+                    let row = ((click_y - list_start_y) / row_h) as usize;
+
+                    // Build the same sorted weapon list as the renderer.
+                    let mut sorted_weapons: Vec<_> = ruleset.weapons.values().collect();
+                    sorted_weapons.sort_by_key(|w| format!("{:?}", w.weapon_type));
+
+                    if let Some(weapon) = sorted_weapons.get(row) {
+                        // Check if there's an unarmed merc to assign to.
+                        let unarmed_idx = game.game_state.team.iter().position(|m| m.inventory.is_empty());
+
+                        if let Some(idx) = unarmed_idx {
+                            // Check funds.
+                            if game.game_state.funds < weapon.cost as i64 {
+                                warn!(weapon = %weapon.name, cost = weapon.cost,
+                                      funds = game.game_state.funds, "Cannot afford weapon lease");
+                            } else {
+                                // Deduct cost and assign weapon to the merc.
+                                game.game_state.funds -= weapon.cost as i64;
+                                let merc_name = game.game_state.team[idx].name.clone();
+                                game.game_state.team[idx].inventory.push(
+                                    ow_core::merc::InventoryItem {
+                                        name: weapon.name.clone(),
+                                        encumbrance: weapon.encumbrance,
+                                    }
+                                );
+                                info!(weapon = %weapon.name, cost = weapon.cost,
+                                      merc = %merc_name,
+                                      remaining_funds = game.game_state.funds,
+                                      "Leased weapon to merc");
+                            }
+                        } else {
+                            warn!(weapon = %weapon.name, "No unarmed mercs to assign weapon to");
+                        }
+                    }
+                }
+                return;
+            }
+
             // Check each clickable hotspot (640x480 coords from the original game).
             // Hotspots are checked in priority order — more specific areas first
             // to prevent overlap issues (e.g., phone vs world map).
@@ -1000,6 +1209,33 @@ fn handle_office_input(game: &mut GameLoop, event: &Event, ruleset: &Ruleset) {
                 Keycode::Num3 => Some(OfficePhase::Intel),
                 Keycode::Num4 => Some(OfficePhase::Contracts),
                 Keycode::Num5 => Some(OfficePhase::Training),
+                Keycode::U if current_sub == OfficePhase::Equipment => {
+                    // Unequip all weapons from all mercs, refunding lease costs.
+                    let mut total_refund: i64 = 0;
+                    for merc in &mut game.game_state.team {
+                        for item in merc.inventory.drain(..) {
+                            // Look up the weapon cost for refund.
+                            if let Some(weapon) = ruleset.weapons.values()
+                                .find(|w| w.name == item.name)
+                            {
+                                total_refund += weapon.cost as i64;
+                                info!(weapon = %item.name, refund = weapon.cost,
+                                      merc = %merc.name, "Returned leased weapon");
+                            } else {
+                                info!(item = %item.name, merc = %merc.name,
+                                      "Returned item (no cost lookup)");
+                            }
+                        }
+                    }
+                    if total_refund > 0 {
+                        game.game_state.funds += total_refund;
+                        info!(total_refund, funds = game.game_state.funds,
+                              "All weapons returned — funds refunded");
+                    } else {
+                        info!("No weapons to return");
+                    }
+                    None
+                }
                 Keycode::B => {
                     if game.game_state.team.is_empty() {
                         warn!("Cannot begin mission: no mercs hired");
@@ -1942,12 +2178,31 @@ fn render_office(
             y += 20;
             let mut sorted_weapons: Vec<_> = ruleset.weapons.values().collect();
             sorted_weapons.sort_by_key(|w| format!("{:?}", w.weapon_type));
+            // Collect names of all currently leased weapons for highlighting.
+            let leased_names: Vec<String> = game.game_state.team.iter()
+                .flat_map(|m| m.inventory.iter().map(|i| i.name.clone()))
+                .collect();
+
             for w in sorted_weapons.iter().take(25) {
+                let leased_count = leased_names.iter().filter(|n| *n == &w.name).count();
+                let tag = if leased_count > 0 {
+                    format!(" [x{}]", leased_count)
+                } else {
+                    String::new()
+                };
+                let affordable = game.game_state.funds >= w.cost as i64;
+                let color = if leased_count > 0 {
+                    Color::RGB(100, 200, 100) // green = already leased
+                } else if !affordable {
+                    Color::RGB(120, 80, 80) // dim red = can't afford
+                } else {
+                    Color::RGB(200, 200, 200) // white = available
+                };
                 let line = format!(
-                    "{:<22} RNG:{:>2} DMG:{:>2} PEN:{:>2} AP:{:>2} ${:>5}",
-                    w.name, w.weapon_range, w.damage_class, w.penetration, w.ap_cost, w.cost
+                    "{:<22} RNG:{:>2} DMG:{:>2} PEN:{:>2} AP:{:>2} ${:>5}{}",
+                    w.name, w.weapon_range, w.damage_class, w.penetration, w.ap_cost, w.cost, tag
                 );
-                text.draw_small(canvas, tc, &line, 20, y, Color::RGB(200, 200, 200)).ok();
+                text.draw_small(canvas, tc, &line, 20, y, color).ok();
                 y += 14;
                 if y > (content_y + content_h - 40) { break; }
             }
@@ -1980,10 +2235,15 @@ fn render_office(
             }
 
             // Equipment instructions
-            text.draw_small(canvas, tc,
-                "Equipment leasing coming soon — mercs currently fight unarmed",
+            let armed_count = game.game_state.team.iter().filter(|m| !m.inventory.is_empty()).count();
+            let team_count = game.game_state.team.len();
+            let equip_status = format!(
+                "Click weapon to lease → assigned to first unarmed merc  |  U: Return all weapons  |  Armed: {}/{}",
+                armed_count, team_count
+            );
+            text.draw_small(canvas, tc, &equip_status,
                 20, content_y + content_h,
-                Color::RGB(100, 100, 100)).ok();
+                Color::RGB(140, 140, 100)).ok();
         }
         OfficePhase::Contracts => {
             text.draw_header(canvas, tc, "Available Contracts — Click to Accept", 20, content_y, Color::RGB(220, 200, 100)).ok();
@@ -2087,14 +2347,74 @@ fn render_mission_map(
     if let (Some(tr), Some(map), Some(iso)) = (tile_renderer, loaded_map, mission_iso) {
         tr.render_map(canvas, map, &game.camera, iso);
 
-        // OBJ sprite sheet is loaded and available for object rendering.
-        // Object placement data from the MAP's secondary arrays will be
-        // wired up in a follow-up — for now we just log availability.
+        // === OBJ overlay pass ===
+        // Overlay indices >= 100 in layer1/layer2 reference the OBJ sprite sheet
+        // (buildings, scenery objects) rather than the TIL tileset. We draw them
+        // in a second pass after terrain, using the same painter's algorithm order.
+        //
+        // OBJ sprites are 128x128 (taller than 128x63 terrain tiles), so we
+        // offset them upward by (obj_height - tile_height) so they sit ON the
+        // terrain rather than floating below it.
         if let Some(or) = obj_renderer {
-            trace!(
-                obj_tiles = or.tile_count(),
-                "OBJ renderer available — object placement pending"
-            );
+            let (min_x, min_y, max_x, max_y) = game.camera.visible_tile_bounds(iso);
+            let min_x = min_x.max(0) as usize;
+            let min_y = min_y.max(0) as usize;
+            let max_x = (max_x as usize).min(map.width().saturating_sub(1));
+            let max_y = (max_y as usize).min(map.active_rows().saturating_sub(1));
+
+            let obj_pw = or.tile_pixel_width() as f32;
+            let obj_ph = or.tile_pixel_height() as f32;
+            let tile_ph = tr.tile_pixel_height() as f32;
+            // Vertical offset so the bottom of the OBJ sprite aligns with the
+            // bottom of the terrain tile it sits on.
+            let y_offset_base = obj_ph - tile_ph;
+
+            let mut objs_drawn: u32 = 0;
+
+            // OBJ index = overlay_value - 100 (overlay 101 -> OBJ sprite 1, etc.)
+            const OBJ_OVERLAY_THRESHOLD: u16 = 100;
+
+            for ty in min_y..=max_y {
+                for tx in min_x..=max_x {
+                    let tile = match map.get_tile(tx, ty) {
+                        Some(t) => t,
+                        None => continue,
+                    };
+                    if tile.is_border { continue; }
+
+                    for overlay_layer in [tile.layer1, tile.layer2] {
+                        if overlay_layer < OBJ_OVERLAY_THRESHOLD { continue; }
+
+                        let obj_idx = (overlay_layer - OBJ_OVERLAY_THRESHOLD) as usize;
+                        let obj_tex = match or.get_texture(obj_idx) {
+                            Some(t) => t,
+                            None => continue,
+                        };
+
+                        let world_pos = iso.tile_to_screen(TilePos {
+                            x: tx as i32,
+                            y: ty as i32,
+                        });
+                        let screen_pos = game.camera.world_to_screen(world_pos);
+
+                        // Center horizontally on the tile position, offset up
+                        // so the sprite base aligns with the terrain surface.
+                        let draw_x = screen_pos.x - (obj_pw * game.camera.zoom) / 2.0;
+                        let draw_y = screen_pos.y - (y_offset_base * game.camera.zoom);
+
+                        let dst_w = (obj_pw * game.camera.zoom) as u32;
+                        let dst_h = (obj_ph * game.camera.zoom) as u32;
+
+                        let dst = Rect::new(draw_x as i32, draw_y as i32, dst_w, dst_h);
+                        if let Err(e) = canvas.copy(obj_tex, None, dst) {
+                            trace!(tx, ty, obj_idx, error = %e, "OBJ sprite draw failed");
+                        }
+                        objs_drawn += 1;
+                    }
+                }
+            }
+
+            trace!(objs_drawn, "OBJ overlay pass complete");
         }
     } else {
         render_placeholder_grid(canvas, &game.camera, &game.iso_config);

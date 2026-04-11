@@ -304,4 +304,12 @@ impl<'tc> TileMapRenderer<'tc> {
     pub fn tile_count(&self) -> usize {
         self.tile_textures.len()
     }
+
+    /// Returns a reference to the texture at the given index, if it exists and is valid.
+    ///
+    /// This is used by the game loop to draw OBJ sprites at specific screen
+    /// positions for overlay layers that reference the OBJ sprite sheet.
+    pub fn get_texture(&self, index: usize) -> Option<&Texture<'tc>> {
+        self.tile_textures.get(index).and_then(|t| t.as_ref())
+    }
 }
