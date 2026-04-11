@@ -1070,11 +1070,19 @@ fn handle_deployment_input(game: &mut GameLoop, event: &Event) {
                 .set_phase(GamePhase::Mission(MissionPhase::Combat));
 
             // Build initiative order from placed, living player units.
-            // TODO: Interleave enemy units sorted by initiative stat.
+            // Build initiative order: interleave player mercs and enemies.
+            // All units sorted by initiative (EXP + WIL) — highest first.
+            // This is the core WoW mechanic: NOT I-go-you-go, but all
+            // units mixed by initiative regardless of faction.
             let mut init_order: Vec<MercId> = Vec::new();
             for merc in &game.game_state.team {
                 if merc.position.is_some() && merc.is_alive() {
                     init_order.push(merc.id);
+                }
+            }
+            for enemy in &game.enemies {
+                if enemy.current_hp > 0 && enemy.position.is_some() {
+                    init_order.push(enemy.id);
                 }
             }
             let first_id = init_order.first().copied();
@@ -1475,13 +1483,72 @@ fn update_combat(game: &mut GameLoop, _delta_ms: u32) {
         if let Some(id) = current_id {
             let is_player = game.game_state.team.iter().any(|m| m.id == id);
             if !is_player {
-                // AI decides an action.
-                // TODO: Wire decide_action(mission_state, id) and execute_action()
-                //       once MissionState is accessible from here.
-                debug!(unit_id = id, "AI turn: would call decide_action() here");
+                // AI decision: find the nearest player merc and shoot them.
+                // If no merc in range, move toward the nearest one.
+                let enemy = game.enemies.iter().find(|e| e.id == id);
+                if let Some(enemy) = enemy {
+                    if enemy.current_hp == 0 {
+                        // Dead enemy, skip turn
+                        advance_initiative(game);
+                    } else if let Some(enemy_pos) = enemy.position {
+                        // Find nearest living player merc
+                        let nearest_merc = game.game_state.team.iter()
+                            .filter(|m| m.is_alive() && m.position.is_some())
+                            .min_by_key(|m| {
+                                let mp = m.position.unwrap();
+                                (mp.x - enemy_pos.x).abs() + (mp.y - enemy_pos.y).abs()
+                            });
 
-                // For now, AI just ends its turn
-                advance_initiative(game);
+                        if let Some(target) = nearest_merc {
+                            let tp = target.position.unwrap();
+                            let dist = (tp.x - enemy_pos.x).abs() + (tp.y - enemy_pos.y).abs();
+
+                            if dist <= 15 {
+                                // In range — SHOOT!
+                                use rand::Rng;
+                                let mut rng = rand::thread_rng();
+                                let hit_chance = (enemy.wsk as u32).min(80);
+                                let roll: u32 = rng.gen_range(0..100);
+
+                                if roll < hit_chance {
+                                    let damage = rng.gen_range(3..15);
+                                    let target_id = target.id;
+                                    let target_name = target.name.clone();
+                                    if let Some(merc) = game.game_state.team.iter_mut()
+                                        .find(|m| m.id == target_id)
+                                    {
+                                        merc.current_hp = merc.current_hp.saturating_sub(damage);
+                                        info!(
+                                            enemy = %enemy.name,
+                                            target = %target_name,
+                                            damage,
+                                            remaining_hp = merc.current_hp,
+                                            "Enemy HIT player merc!"
+                                        );
+                                    }
+                                } else {
+                                    info!(enemy = %enemy.name, "Enemy MISSED!");
+                                }
+                            } else {
+                                // Too far — move toward the target
+                                let dx = (tp.x - enemy_pos.x).signum() * 3;
+                                let dy = (tp.y - enemy_pos.y).signum() * 3;
+                                let new_pos = ow_core::merc::TilePos {
+                                    x: enemy_pos.x + dx,
+                                    y: enemy_pos.y + dy,
+                                };
+                                if let Some(e) = game.enemies.iter_mut().find(|e| e.id == id) {
+                                    e.position = Some(new_pos);
+                                }
+                            }
+                        }
+                        advance_initiative(game);
+                    } else {
+                        advance_initiative(game);
+                    }
+                } else {
+                    advance_initiative(game);
+                }
             } else {
                 // Somehow landed on a player unit while AI is acting — hand back
                 if let PhaseHandler::Combat(c) = &mut game.phase_handler {
