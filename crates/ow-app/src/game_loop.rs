@@ -2906,27 +2906,39 @@ fn render_mission_map(
                 // of the 128x138 frame (around x=60-70, y=122-136).
                 // We crop to just the soldier region and draw it small on the tile.
                 // Source rect: crop the 128x138 texture to the soldier area.
-                let src_rect = Rect::new(55, 118, 20, 20); // 20x20 crop around the soldier
+                // Draw the full 128x138 sprite but scaled down to fit a tile.
+                // The soldier figure is tiny within the frame but the frame also
+                // has the isometric footprint diamond — drawing the full frame
+                // at tile size gives correct positioning.
+                let draw_w = (64.0 * game.camera.zoom) as u32;
+                let draw_h = (70.0 * game.camera.zoom) as u32;
+                let draw_x = screen.x - (draw_w as f32 / 2.0);
+                let draw_y = screen.y - draw_h as f32;
 
-                // Draw small — the soldier should be about 12x12 pixels on screen at 1x zoom
-                let draw_size = (14.0 * game.camera.zoom) as u32;
-                let draw_x = screen.x - (draw_size as f32 / 2.0);
-                let draw_y = screen.y - draw_size as f32;
+                let dst = Rect::new(draw_x as i32, draw_y as i32, draw_w, draw_h);
+                canvas.copy(sld_tex, None, dst).ok();
 
-                let dst = Rect::new(draw_x as i32, draw_y as i32, draw_size, draw_size);
-                canvas.copy(sld_tex, Some(src_rect), dst).ok();
+                // Also draw a green dot so the unit is always visible
+                // even if the sprite is too faint at this zoom level.
+                let dot_color = if is_selected {
+                    Color::RGB(255, 255, 0)
+                } else {
+                    Color::RGB(0, 220, 0)
+                };
+                canvas.set_draw_color(dot_color);
+                canvas.fill_rect(Rect::new(
+                    screen.x as i32 - 4, screen.y as i32 - 4, 8, 8,
+                )).ok();
 
-                // Draw selection indicator under selected unit
+                // Selection border
                 if is_selected {
                     canvas.set_draw_color(Color::RGB(255, 255, 0));
-                    canvas
-                        .draw_rect(Rect::new(
-                            draw_x as i32 - 1,
-                            draw_y as i32 - 1,
-                            draw_size + 2,
-                            draw_size + 2,
-                        ))
-                        .ok();
+                    canvas.draw_rect(Rect::new(
+                        draw_x as i32 - 1,
+                        draw_y as i32 - 1,
+                        draw_w + 2,
+                        draw_h + 2,
+                    )).ok();
                 }
             } else {
                 // Fallback: colored squares when no soldier sprite is loaded
